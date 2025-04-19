@@ -1,0 +1,26 @@
+<div id="voiceToTextPage" class="page">
+  <h2>Grabadora de Voz a Texto</h2>
+  <div class="voice-recorder">
+    <p>Pulsa el botón "Iniciar grabación" y habla. Tu voz se convertirá en texto.</p>
+    <div class="voice-recorder-buttons">
+      <button onclick="startVoiceRecording()" class="record">Iniciar grabación</button>
+      <button onclick="stopVoiceRecording()" class="stop">Detener grabación</button>
+      <button onclick="saveVoiceText()" class="save">Guardar texto</button>
+    </div>
+    <div class="voice-recorder-status" id="voiceStatus">Esperando para grabar...</div>
+    <textarea id="voiceText" class="voice-recorder-text" placeholder="El texto reconocido aparecerá aquí..." rows="10"></textarea>
+    <div id="voiceSaveStatus" class="status"></div>
+    
+    <h3>Textos Guardados</h3>
+    <table id="voiceTable" class="register-table">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Texto</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>

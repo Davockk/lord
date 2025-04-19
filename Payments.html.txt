@@ -1,0 +1,60 @@
+<div id="paymentsPage" class="page">
+  <h2>Registro de Pagos</h2>
+  <div class="form-container">
+    <form id="paymentForm">
+      <label>Fecha:
+        <input type="date" name="date" id="paymentDate" required>
+      </label>
+      
+      <label>Nombre del Cliente/Estudiante:
+        <input type="text" name="clientName" required>
+      </label>
+      
+      <label>Concepto:
+        <input type="text" name="concept" required>
+      </label>
+      
+      <label>Monto:
+        <input type="number" name="amount" step="0.01" min="0" required>
+      </label>
+      
+      <label>Método de Pago:
+        <select name="method" required>
+          <option value="">Seleccionar método...</option>
+          <option value="Efectivo">Efectivo</option>
+          <option value="Transferencia">Transferencia</option>
+          <option value="Tarjeta">Tarjeta</option>
+          <option value="Otro">Otro</option>
+        </select>
+      </label>
+      
+      <label>Observaciones:
+        <input type="text" name="observations">
+      </label>
+      
+      <button type="button" onclick="submitPayment()">Registrar Pago</button>
+    </form>
+    <div id="paymentStatus" class="status"></div>
+    
+    <h3>Registro de Pagos</h3>
+    <div>
+      <label>Filtrar por fecha:
+        <input type="date" id="paymentFilterDate" onchange="filterPayments()">
+      </label>
+      <button type="button" onclick="resetPaymentFilter()">Mostrar todo</button>
+    </div>
+    <table id="paymentTable" class="register-table">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Cliente</th>
+          <th>Concepto</th>
+          <th>Monto</th>
+          <th>Método</th>
+          <th>Observaciones</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Aplicación de Datos Personales</title>
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Roboto:wght@300;400;500;700&family=Roboto+Mono&display=swap" rel="stylesheet">
+  
+  <!-- Flatpickr (Selector de fechas) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://npmcdn.com/flatpickr/dist/l10n/es.js"></script>
+  
+  <?!= include('Style'); ?>
+</head>
+<body>
+  <div class="header">
+    <div class="app-title">Aplicación Datos Personales</div>
+    <div class="user-info">
+      <span id="currentUser"></span>
+      <button onclick="logout()" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Cerrar sesión</button>
+    </div>
+  </div>
+
+  <div class="layout-container">
+    <!-- Menú de navegación lateral -->
+    <div class="sidebar">
+      <div class="sidebar-nav">
+        <button data-page="landing" class="sidebar-btn active"><i class="fas fa-home"></i> <span>Portada</span></button>
+        <button data-page="formPage" class="sidebar-btn"><i class="fas fa-file-alt"></i> <span>Formulario</span></button>
+        <button data-page="calendarPage" class="sidebar-btn"><i class="fas fa-calendar-alt"></i> <span>Calendario</span></button>
+        <button data-page="calculatorPage" class="sidebar-btn"><i class="fas fa-calculator"></i> <span>Calculadora</span></button>
+        <button data-page="voiceToTextPage" class="sidebar-btn"><i class="fas fa-microphone"></i> <span>Grabadora de Voz</span></button>
+        <button data-page="attendancePage" class="sidebar-btn"><i class="fas fa-clipboard-check"></i> <span>Control de Asistencia</span></button>
+        <button data-page="paymentsPage" class="sidebar-btn"><i class="fas fa-money-bill-wave"></i> <span>Registro de Pagos</span></button>
+        <button data-page="documentsPage" class="sidebar-btn"><i class="fas fa-folder-open"></i> <span>Registro de Documentos</span></button>
+        <button data-page="tasksPage" class="sidebar-btn"><i class="fas fa-tasks"></i> <span>Gestión de Tareas</span></button>
+        <button data-page="notesPage" class="sidebar-btn"><i class="fas fa-sticky-note"></i> <span>Notas Varias</span></button>
+        <button data-page="documentControlPage" class="sidebar-btn"><i class="fas fa-building"></i> <span>Control Documental</span></button>
+      </div>
+    </div>
+
+    <!-- Contenido principal -->
+    <div class="main-content">
+      <!-- Portada -->
+      <?!= include('Landing'); ?>
+
+      <!-- Formulario -->
+      <?!= include('Form'); ?>
+
+      <!-- Calendario -->
+      <?!= include('Calendar'); ?>
+
+      <!-- Calculadora -->
+      <?!= include('Calculator'); ?>
+
+      <!-- Grabadora de Voz a Texto -->
+      <?!= include('VoiceToText'); ?>
+
+      <!-- Control de Asistencia -->
+      <?!= include('Attendance'); ?>
+
+      <!-- Registro de Pagos -->
+      <?!= include('Payments'); ?>
+      
+      <!-- Registro de Documentos -->
+      <?!= include('Documents'); ?>
+      
+      <!-- Gestión de Tareas -->
+      <?!= include('Tasks'); ?>
+      
+      <!-- Notas Varias -->
+      <?!= include('Notes'); ?>
+      
+      <!-- Control Documental -->
+      <?!= include('DocumentControl'); ?>
+    </div>
+  </div>
+
+  <?!= include('Script'); ?>
+  
+  <script>
+    // Verificar autenticación al cargar la página
+    window.onload = function() {
+      // Inicialización general
+      var today = new Date();
+      var dateString = today.toISOString().split('T')[0];
+      
+      // Inicializar fechas de formularios si existen
+      var dateInputs = document.querySelectorAll('input[type="date"]');
+      dateInputs.forEach(function(input) {
+        input.value = dateString;
+      });
+      
+      // Configurar navegación por menú lateral
+      document.querySelectorAll('.sidebar-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var page = btn.getAttribute('data-page');
+          
+          // Actualizar botón activo
+          document.querySelectorAll('.sidebar-btn').forEach(function(b) {
+            b.classList.remove('active');
+          });
+          btn.classList.add('active');
+          
+          // Mostrar página correspondiente
+          document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+          document.getElementById(page).classList.add('active');
+          
+          // Cargar datos específicos según la página
+          if (page === 'formPage') loadEntries();
+          if (page === 'calendarPage') renderCalendar();
+          if (page === 'voiceToTextPage') loadVoiceEntries();
+          if (page === 'attendancePage') loadAttendanceEntries();
+          if (page === 'paymentsPage') loadPaymentEntries();
+          if (page === 'documentsPage') loadDocuments();
+          if (page === 'tasksPage') loadTasks();
+          if (page === 'notesPage') loadNotes();
+          if (page === 'documentControlPage') initDocumentControl();
+          
+          // En dispositivos móviles, cerrar el menú después de seleccionar
+          if (window.innerWidth < 768) {
+            document.querySelector('.sidebar').classList.remove('open');
+          }
+        });
+      });
+      
+      // Verificar si el usuario está autenticado
+      google.script.run
+        .withSuccessHandler(function(user) {
+          if (user && user.email) {
+            // El usuario está autenticado
+            document.getElementById('currentUser').textContent = user.name || user.email;
+          } else {
+            // Redirigir al login si no está autenticado
+            var scriptUrl = "";
+            // Usar un callback para manejar la URL de forma asíncrona
+            google.script.run
+              .withSuccessHandler(function(url) {
+                window.location.href = url + '?page=login';
+              })
+              .getScriptUrl();
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.error('Error al verificar autenticación:', error);
+          // En caso de error, también obtener la URL de manera segura
+          google.script.run
+            .withSuccessHandler(function(url) {
+              window.location.href = url + '?page=login';
+            })
+            .getScriptUrl();
+        })
+        .getCurrentUser();
+    };
+    
+    function logout() {
+      if (confirm('¿Estás seguro de que quieres cerrar sesión?')) {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            window.location.href = result.url;
+          })
+          .logoutUser();
+      }
+    }
+  </script>
+</body>
+</html>

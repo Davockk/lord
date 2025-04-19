@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acceso a la Aplicación</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      background-color: #f5f5f5;
+    }
+    
+    .login-container {
+      background-color: white;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      width: 90%;
+      max-width: 400px;
+      padding: 20px;
+    }
+    
+    .app-title {
+      text-align: center;
+      margin-bottom: 20px;
+      color: #4285F4;
+    }
+    
+    .form-toggle {
+      display: flex;
+      margin-bottom: 20px;
+      border-radius: 5px;
+      overflow: hidden;
+      border: 1px solid #ddd;
+    }
+    
+    .toggle-btn {
+      flex: 1;
+      padding: 10px;
+      text-align: center;
+      background-color: #f5f5f5;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    
+    .toggle-btn.active {
+      background-color: #4285F4;
+      color: white;
+    }
+    
+    .form-group {
+      margin-bottom: 15px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      box-sizing: border-box;
+    }
+    
+    .submit-btn {
+      width: 100%;
+      padding: 12px;
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    
+    .error-message {
+      color: #ff4444;
+      margin-top: 10px;
+      text-align: center;
+    }
+    
+    .success-message {
+      color: #4CAF50;
+      margin-top: 10px;
+      text-align: center;
+    }
+    
+    #registerForm {
+      display: none;
+    }
+    
+    @media (max-width: 480px) {
+      .login-container {
+        width: 95%;
+        padding: 15px;
+      }
+      
+      input, .submit-btn {
+        padding: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <h1 class="app-title">Acceso a la Aplicación</h1>
+    
+    <div class="form-toggle">
+      <div id="loginToggle" class="toggle-btn active" onclick="showForm('loginForm')">Iniciar Sesión</div>
+      <div id="registerToggle" class="toggle-btn" onclick="showForm('registerForm')">Registrarse</div>
+    </div>
+    
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="loginEmail">Correo Electrónico</label>
+        <input type="email" id="loginEmail" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="loginPassword">Contraseña</label>
+        <input type="password" id="loginPassword" required>
+      </div>
+      
+      <button type="button" class="submit-btn" onclick="loginUser()">Iniciar Sesión</button>
+      <div id="loginError" class="error-message"></div>
+    </form>
+    
+    <form id="registerForm">
+      <div class="form-group">
+        <label for="registerName">Nombre Completo</label>
+        <input type="text" id="registerName" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="registerEmail">Correo Electrónico</label>
+        <input type="email" id="registerEmail" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="registerPassword">Contraseña</label>
+        <input type="password" id="registerPassword" required minlength="6">
+      </div>
+      
+      <div class="form-group">
+        <label for="registerPasswordConfirm">Confirmar Contraseña</label>
+        <input type="password" id="registerPasswordConfirm" required minlength="6">
+      </div>
+      
+      <button type="button" class="submit-btn" onclick="registerUser()">Registrarse</button>
+      <div id="registerMessage" class="error-message"></div>
+    </form>
+  </div>
+
+  <script>
+    function showForm(formId) {
+      // Ocultar todos los formularios
+      document.getElementById('loginForm').style.display = 'none';
+      document.getElementById('registerForm').style.display = 'none';
+      
+      // Quitar la clase active de todos los toggles
+      document.getElementById('loginToggle').classList.remove('active');
+      document.getElementById('registerToggle').classList.remove('active');
+      
+      // Mostrar el formulario seleccionado
+      document.getElementById(formId).style.display = 'block';
+      
+      // Activar el toggle correspondiente
+      if (formId === 'loginForm') {
+        document.getElementById('loginToggle').classList.add('active');
+      } else {
+        document.getElementById('registerToggle').classList.add('active');
+      }
+    }
+    
+    function loginUser() {
+      var email = document.getElementById('loginEmail').value;
+      var password = document.getElementById('loginPassword').value;
+      
+      if (!email || !password) {
+        document.getElementById('loginError').textContent = 'Por favor, completa todos los campos.';
+        return;
+      }
+      
+      // Limpiar mensaje de error
+      document.getElementById('loginError').textContent = 'Iniciando sesión...';
+      
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            // Redirigir a la aplicación principal
+            window.location.href = result.url;
+          } else {
+            document.getElementById('loginError').textContent = result.message || 'Error al iniciar sesión.';
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('loginError').textContent = 'Error: ' + error.message;
+        })
+        .loginUser(email, password);
+    }
+    
+    function registerUser() {
+      var name = document.getElementById('registerName').value;
+      var email = document.getElementById('registerEmail').value;
+      var password = document.getElementById('registerPassword').value;
+      var passwordConfirm = document.getElementById('registerPasswordConfirm').value;
+      
+      // Validaciones básicas
+      if (!name || !email || !password || !passwordConfirm) {
+        document.getElementById('registerMessage').textContent = 'Por favor, completa todos los campos.';
+        return;
+      }
+      
+      if (password !== passwordConfirm) {
+        document.getElementById('registerMessage').textContent = 'Las contraseñas no coinciden.';
+        return;
+      }
+      
+      if (password.length < 6) {
+        document.getElementById('registerMessage').textContent = 'La contraseña debe tener al menos 6 caracteres.';
+        return;
+      }
+      
+      // Limpiar mensaje de error
+      document.getElementById('registerMessage').textContent = 'Registrando usuario...';
+      document.getElementById('registerMessage').className = 'success-message';
+      
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            document.getElementById('registerMessage').textContent = 'Usuario registrado correctamente. Ahora puedes iniciar sesión.';
+            document.getElementById('registerMessage').className = 'success-message';
+            
+            // Limpiar formulario
+            document.getElementById('registerName').value = '';
+            document.getElementById('registerEmail').value = '';
+            document.getElementById('registerPassword').value = '';
+            document.getElementById('registerPasswordConfirm').value = '';
+            
+            // Cambiar a formulario de login después de 2 segundos
+            setTimeout(function() {
+              showForm('loginForm');
+            }, 2000);
+          } else {
+            document.getElementById('registerMessage').textContent = result.message || 'Error al registrar usuario.';
+            document.getElementById('registerMessage').className = 'error-message';
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('registerMessage').textContent = 'Error: ' + error.message;
+          document.getElementById('registerMessage').className = 'error-message';
+        })
+        .registerUser(name, email, password);
+    }
+  </script>
+</body>
+</html>

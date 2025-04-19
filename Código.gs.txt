@@ -1,0 +1,1321 @@
+// ID de tu Google Sheet
+var SPREADSHEET_ID = '1Z-fsp8WvfwxjqOJOE3mIWvj27BxZNKJd21chW_nMQWI';
+
+// ID de la carpeta de Google Drive para documentos
+var DRIVE_FOLDER_ID = '1ez31MORGcSjfhvR-F0soBBv71NTCY5XE';
+
+// Tiempo de expiración de la sesión en minutos
+var SESSION_EXPIRATION_MINUTES = 60;
+
+/**
+ * Punto de entrada GET: Maneja diferentes páginas basadas en parámetros
+ */
+function doGet(e) {
+  // SOLUCIÓN: Definir page sin acceder directamente a e.parameter
+  var page = '';
+  
+  try {
+    // Verificar si e existe y tiene la propiedad parameter.page
+    if (e && typeof e === 'object' && e.parameter && typeof e.parameter === 'object' && 'page' in e.parameter) {
+      page = e.parameter.page;
+    }
+  } catch (err) {
+    Logger.log('Error al acceder a e.parameter: ' + err.toString());
+    // Si hay un error, continuar con page como cadena vacía
+  }
+  
+  // Si la página solicitada es login, mostrar la página de inicio de sesión
+  if (page === 'login') {
+    return HtmlService
+      .createHtmlOutputFromFile('Login')
+      .setTitle('Acceso a la Aplicación')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+  
+  // Si el usuario no está autenticado, redirigir al login
+  var user = getCurrentUser();
+  if (!user) {
+    return HtmlService
+      .createHtmlOutputFromFile('Login')
+      .setTitle('Acceso a la Aplicación')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+  
+  // Si está autenticado, mostrar la aplicación principal
+  return HtmlService
+    .createTemplateFromFile('Index')
+    .evaluate()
+    .setTitle('Aplicación de Datos Personales')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * Obtiene la URL del script actual
+ */
+function getScriptUrl() {
+  return ScriptApp.getService().getUrl();
+}
+
+/**
+ * Función para incluir archivos HTML en la página principal
+ */
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+// =================== AUTENTICACIÓN Y USUARIOS ===================
+
+/**
+ * Registra un nuevo usuario
+ * @param {string} name Nombre completo del usuario
+ * @param {string} email Correo electrónico del usuario
+ * @param {string} password Contraseña del usuario
+ * @return {Object} Resultado de la operación
+ */
+function registerUser(name, email, password) {
+  try {
+    // Validar datos de entrada
+    if (!name || !email || !password) {
+      return { success: false, message: 'Todos los campos son obligatorios.' };
+    }
+    
+    // Verificar si el usuario ya existe
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('Usuarios');
+    
+    // Crear la hoja de usuarios si no existe
+    if (!sheet) {
+      sheet = ss.insertSheet('Usuarios');
+      sheet.appendRow(['ID', 'Nombre', 'Email', 'Contraseña', 'Fecha Registro', 'Última Sesión']);
+      sheet.getRange('A:A').setNumberFormat('@');  // Forzar formato de texto para IDs
+    }
+    
+    // Verificar si el email ya está registrado
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][2] === email) {
+        return { success: false, message: 'Este correo electrónico ya está registrado.' };
+      }
+    }
+    
+    // Generar un ID único
+    var userId = Utilities.getUuid();
+    
+    // Hashear la contraseña (método simple, no es seguro para producción)
+    var hashedPassword = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, password));
+    
+    // Registrar al usuario
+    sheet.appendRow([
+      userId,
+      name,
+      email,
+      hashedPassword,
+      new Date(),
+      new Date()
+    ]);
+    
+    return { success: true, message: 'Usuario registrado correctamente.' };
+  } catch (error) {
+    Logger.log('Error al registrar usuario: ' + error.toString());
+    return { success: false, message: 'Error al registrar usuario: ' + error.toString() };
+  }
+}
+
+/**
+ * Inicia sesión de un usuario
+ * @param {string} email Correo electrónico del usuario
+ * @param {string} password Contraseña del usuario
+ * @return {Object} Resultado de la operación y URL de redirección
+ */
+function loginUser(email, password) {
+  try {
+    // Validar datos de entrada
+    if (!email || !password) {
+      return { success: false, message: 'Todos los campos son obligatorios.' };
+    }
+    
+    // Verificar credenciales
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('Usuarios');
+    
+    if (!sheet) {
+      return { success: false, message: 'No hay usuarios registrados aún.' };
+    }
+    
+    // Hashear la contraseña ingresada
+    var hashedPassword = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, password));
+    
+    // Buscar usuario por email y contraseña
+    var data = sheet.getDataRange().getValues();
+    var userFound = false;
+    var userId, userName;
+    
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][2] === email && data[i][3] === hashedPassword) {
+        userFound = true;
+        userId = data[i][0];
+        userName = data[i][1];
+        
+        // Actualizar la última sesión
+        sheet.getRange(i + 1, 6).setValue(new Date());
+        break;
+      }
+    }
+    
+    if (!userFound) {
+      return { success: false, message: 'Correo electrónico o contraseña incorrectos.' };
+    }
+    
+    // Crear sesión en propiedades de script
+    var userProperties = PropertiesService.getUserProperties();
+    var sessionData = {
+      userId: userId,
+      email: email,
+      name: userName,
+      expires: new Date().getTime() + (SESSION_EXPIRATION_MINUTES * 60 * 1000)
+    };
+    
+    userProperties.setProperty('session', JSON.stringify(sessionData));
+    
+    // Redirigir a la aplicación principal
+    return { 
+      success: true, 
+      message: 'Inicio de sesión exitoso.',
+      url: getScriptUrl()
+    };
+  } catch (error) {
+    Logger.log('Error al iniciar sesión: ' + error.toString());
+    return { success: false, message: 'Error al iniciar sesión: ' + error.toString() };
+  }
+}
+
+/**
+ * Cierra la sesión del usuario actual
+ */
+function logoutUser() {
+  var userProperties = PropertiesService.getUserProperties();
+  userProperties.deleteProperty('session');
+  
+  return { 
+    success: true, 
+    url: getScriptUrl() + '?page=login'
+  };
+}
+
+/**
+ * Obtiene el usuario actualmente autenticado
+ * @return {Object|null} Datos del usuario autenticado o null si no hay sesión activa
+ */
+function getCurrentUser() {
+  try {
+    var userProperties = PropertiesService.getUserProperties();
+    var sessionJson = userProperties.getProperty('session');
+    
+    if (!sessionJson) {
+      return null;
+    }
+    
+    var session = JSON.parse(sessionJson);
+    
+    // Verificar si la sesión ha expirado
+    if (session.expires < new Date().getTime()) {
+      userProperties.deleteProperty('session');
+      return null;
+    }
+    
+    return {
+      userId: session.userId,
+      email: session.email,
+      name: session.name
+    };
+  } catch (error) {
+    Logger.log('Error al obtener usuario actual: ' + error.toString());
+    return null;
+  }
+}
+
+// =================== FORMULARIO ORIGINAL ===================
+
+/**
+ * Guarda los datos del formulario en la hoja "Datos"
+ * @param {Object} formData {name, email, phone, address}
+ */
+function processForm(formData) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('Datos');
+  if (!sheet) {
+    sheet = ss.insertSheet('Datos');
+    sheet.appendRow(['Timestamp', 'Nombre', 'Email', 'Teléfono', 'Dirección']);
+  }
+  sheet.appendRow([
+    new Date(),
+    formData.name,
+    formData.email,
+    formData.phone,
+    formData.address
+  ]);
+  SpreadsheetApp.flush();
+}
+
+/**
+ * Devuelve todos los registros de "Datos" con timestamp ISO
+ */
+function getEntries() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('Datos');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues();
+  return data.map(function(row) {
+    return {
+      timestamp: row[0] instanceof Date ? row[0].toISOString() : row[0],
+      name: row[1],
+      email: row[2],
+      phone: row[3],
+      address: row[4]
+    };
+  });
+}
+
+// =================== GRABADORA DE VOZ A TEXTO ===================
+
+/**
+ * Guarda el texto de voz en la hoja "VozTexto"
+ * @param {string} text El texto transcrito
+ */
+function saveVoiceText(text) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('VozTexto');
+  if (!sheet) {
+    sheet = ss.insertSheet('VozTexto');
+    sheet.appendRow(['ID', 'Timestamp', 'Texto']);
+  }
+  
+  var id = Utilities.getUuid();
+  sheet.appendRow([
+    id,
+    new Date(),
+    text
+  ]);
+  SpreadsheetApp.flush();
+}
+
+/**
+ * Obtiene todos los registros de voz a texto
+ */
+function getVoiceEntries() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('VozTexto');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues();
+  return data.map(function(row) {
+    return {
+      id: row[0],
+      timestamp: row[1] instanceof Date ? row[1].toISOString() : row[1],
+      text: row[2]
+    };
+  });
+}
+
+/**
+ * Elimina un registro de voz a texto
+ * @param {string} id El ID del registro a eliminar
+ */
+function deleteVoiceEntry(id) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('VozTexto');
+  if (!sheet || sheet.getLastRow() < 2) return;
+  
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][0] === id) {
+      sheet.deleteRow(i + 2); // +2 porque i empieza en 0 y hay una fila de encabezado
+      break;
+    }
+  }
+  SpreadsheetApp.flush();
+}
+
+// =================== CONTROL DE ASISTENCIA ===================
+
+/**
+ * Guarda un registro de asistencia
+ * @param {Object} data {date, name, status, observations}
+ */
+function saveAttendance(data) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('Asistencia');
+  if (!sheet) {
+    sheet = ss.insertSheet('Asistencia');
+    sheet.appendRow(['Fecha', 'Nombre', 'Estado', 'Observaciones']);
+  }
+  
+  sheet.appendRow([
+    data.date,
+    data.name,
+    data.status,
+    data.observations || ''
+  ]);
+  SpreadsheetApp.flush();
+}
+
+/**
+ * Obtiene todos los registros de asistencia
+ */
+function getAttendanceEntries() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('Asistencia');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
+  return data.map(function(row) {
+    return {
+      date: row[0] instanceof Date ? Utilities.formatDate(row[0], Session.getScriptTimeZone(), 'yyyy-MM-dd') : row[0],
+      name: row[1],
+      status: row[2],
+      observations: row[3]
+    };
+  });
+}
+
+// =================== REGISTRO DE PAGOS ===================
+
+/**
+ * Guarda un registro de pago
+ * @param {Object} data {date, clientName, concept, amount, method, observations}
+ */
+function savePayment(data) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('Pagos');
+  if (!sheet) {
+    sheet = ss.insertSheet('Pagos');
+    sheet.appendRow(['Fecha', 'Cliente', 'Concepto', 'Monto', 'Método', 'Observaciones']);
+  }
+  
+  sheet.appendRow([
+    data.date,
+    data.clientName,
+    data.concept,
+    parseFloat(data.amount),
+    data.method,
+    data.observations || ''
+  ]);
+  SpreadsheetApp.flush();
+}
+
+/**
+ * Obtiene todos los registros de pagos
+ */
+function getPaymentEntries() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('Pagos');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues();
+  return data.map(function(row) {
+    return {
+      date: row[0] instanceof Date ? Utilities.formatDate(row[0], Session.getScriptTimeZone(), 'yyyy-MM-dd') : row[0],
+      clientName: row[1],
+      concept: row[2],
+      amount: row[3],
+      method: row[4],
+      observations: row[5]
+    };
+  });
+}
+
+// =================== REGISTRO DE DOCUMENTOS ===================
+
+/**
+ * Obtiene los documentos de la carpeta de Drive
+ * @return {Array} Lista de documentos con metadatos
+ */
+function getDocumentsFromDrive() {
+  try {
+    var folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    var files = folder.getFiles();
+    var documents = [];
+    
+    // Obtener la hoja de metadatos de documentos
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('DocumentosMetadatos');
+    var metadataMap = {};
+    
+    // Si existe la hoja de metadatos, cargar los datos
+    if (sheet) {
+      var metadataRows = sheet.getDataRange().getValues();
+      // Saltamos la primera fila (encabezados)
+      for (var i = 1; i < metadataRows.length; i++) {
+        var row = metadataRows[i];
+        metadataMap[row[0]] = {
+          description: row[1],
+          category: row[2]
+        };
+      }
+    }
+    
+    while (files.hasNext()) {
+      var file = files.next();
+      var fileId = file.getId();
+      var metadata = metadataMap[fileId] || { description: '', category: 'General' };
+      
+      documents.push({
+        id: fileId,
+        name: file.getName(),
+        mimeType: file.getMimeType(),
+        size: file.getSize(),
+        dateTime: file.getDateCreated().toISOString(),
+        url: file.getUrl(),
+        description: metadata.description,
+        category: metadata.category
+      });
+    }
+    
+    // Ordenar por fecha de creación (más reciente primero)
+    documents.sort(function(a, b) {
+      return new Date(b.dateTime) - new Date(a.dateTime);
+    });
+    
+    return documents;
+  } catch (error) {
+    Logger.log('Error al obtener documentos: ' + error.toString());
+    throw new Error('No se pudieron cargar los documentos: ' + error.toString());
+  }
+}
+
+/**
+ * Sube un archivo a la carpeta de Drive
+ * @param {string} filename Nombre del archivo
+ * @param {string} content Contenido del archivo en base64
+ * @param {string} mimeType Tipo MIME del archivo
+ * @param {string} description Descripción del archivo
+ * @param {string} category Categoría del archivo
+ * @return {Object} Información del archivo subido
+ */
+function uploadFileToDrive(filename, content, mimeType, description, category) {
+  try {
+    var folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    var blob = Utilities.newBlob(Utilities.base64Decode(content), mimeType, filename);
+    var file = folder.createFile(blob);
+    
+    // Guardar los metadatos en la hoja
+    saveDocumentMetadata(file.getId(), description, category);
+    
+    return {
+      id: file.getId(),
+      name: file.getName(),
+      url: file.getUrl()
+    };
+  } catch (error) {
+    Logger.log('Error al subir archivo: ' + error.toString());
+    throw new Error('Error al subir el archivo: ' + error.toString());
+  }
+}
+
+/**
+ * Guarda los metadatos de un documento en la hoja
+ * @param {string} fileId ID del archivo en Drive
+ * @param {string} description Descripción del archivo
+ * @param {string} category Categoría del archivo
+ */
+function saveDocumentMetadata(fileId, description, category) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('DocumentosMetadatos');
+  
+  // Crear la hoja si no existe
+  if (!sheet) {
+    sheet = ss.insertSheet('DocumentosMetadatos');
+    sheet.appendRow(['ID', 'Descripción', 'Categoría', 'Fecha Registro']);
+  }
+  
+  // Verificar si el ID ya existe
+  var data = sheet.getDataRange().getValues();
+  var rowIndex = -1;
+  
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] === fileId) {
+      rowIndex = i + 1; // +1 porque las filas en Sheets empiezan en 1
+      break;
+    }
+  }
+  
+  if (rowIndex > 0) {
+    // Actualizar fila existente
+    sheet.getRange(rowIndex, 2, 1, 3).setValues([[description, category, new Date()]]);
+  } else {
+    // Añadir nueva fila
+    sheet.appendRow([fileId, description, category, new Date()]);
+  }
+  
+  SpreadsheetApp.flush();
+}
+
+/**
+ * Obtiene la URL para ver un documento
+ * @param {string} fileId ID del archivo en Drive
+ * @return {string} URL para ver el documento
+ */
+function getDocumentViewUrl(fileId) {
+  try {
+    var file = DriveApp.getFileById(fileId);
+    return file.getUrl();
+  } catch (error) {
+    Logger.log('Error al obtener URL: ' + error.toString());
+    throw new Error('No se pudo obtener la URL del documento: ' + error.toString());
+  }
+}
+
+/**
+ * Elimina un documento de Drive
+ * @param {string} fileId ID del archivo en Drive
+ */
+function deleteDocument(fileId) {
+  try {
+    // Eliminar archivo de Drive
+    DriveApp.getFileById(fileId).setTrashed(true);
+    
+    // Eliminar metadatos de la hoja
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('DocumentosMetadatos');
+    
+    if (sheet) {
+      var data = sheet.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (data[i][0] === fileId) {
+          sheet.deleteRow(i + 1); // +1 porque i empieza en 0 y hay una fila de encabezado
+          break;
+        }
+      }
+    }
+    
+    return { success: true };
+  } catch (error) {
+    Logger.log('Error al eliminar documento: ' + error.toString());
+    throw new Error('No se pudo eliminar el documento: ' + error.toString());
+  }
+}
+
+// =================== GESTIÓN DE TAREAS ===================
+
+/**
+ * Guarda una nueva tarea o actualiza una existente
+ * @param {Object} taskData Datos de la tarea
+ * @return {Object} Resultado de la operación y datos de la tarea guardada
+ */
+function saveTask(taskData) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('Tareas');
+    var currentUser = getCurrentUser();
+    
+    // Crear la hoja si no existe
+    if (!sheet) {
+      sheet = ss.insertSheet('Tareas');
+      sheet.appendRow(['ID', 'Usuario', 'Descripción', 'Notas', 'Fecha Creación', 'Fecha Límite', 'Prioridad', 'Estado', 'Fecha Completada']);
+      sheet.getRange('A:A').setNumberFormat('@'); // Forzar formato de texto para IDs
+    }
+    
+    var timestamp = new Date();
+    var taskId = taskData.id || Utilities.getUuid();
+    
+    // Si es una actualización, buscar la fila correspondiente
+    if (taskData.id) {
+      var data = sheet.getDataRange().getValues();
+      var rowIndex = -1;
+      
+      for (var i = 1; i < data.length; i++) {
+        if (data[i][0] === taskData.id) {
+          rowIndex = i + 1; // +1 porque las filas empiezan en 1
+          break;
+        }
+      }
+      
+      if (rowIndex > 0) {
+        // Actualizar la tarea existente
+        var completedDate = taskData.status === 'Completada' ? new Date() : '';
+        sheet.getRange(rowIndex, 3, 1, 7).setValues([[
+          taskData.description,
+          taskData.notes || '',
+          data[i][4], // Mantener la fecha de creación original
+          taskData.dueDate || '',
+          taskData.priority,
+          taskData.status,
+          completedDate
+        ]]);
+      } else {
+        // El ID existe pero no se encontró (raro)
+        throw new Error('No se encontró la tarea para actualizar');
+      }
+    } else {
+      // Es una tarea nueva
+      sheet.appendRow([
+        taskId,
+        currentUser ? currentUser.email : 'anonymous',
+        taskData.description,
+        taskData.notes || '',
+        timestamp,
+        taskData.dueDate || '',
+        taskData.priority,
+        'Pendiente',
+        ''
+      ]);
+    }
+    
+    SpreadsheetApp.flush();
+    
+    return {
+      success: true,
+      taskId: taskId,
+      message: taskData.id ? 'Tarea actualizada correctamente' : 'Tarea creada correctamente'
+    };
+  } catch (error) {
+    Logger.log('Error al guardar tarea: ' + error.toString());
+    return {
+      success: false,
+      message: 'Error al guardar la tarea: ' + error.toString()
+    };
+  }
+}
+
+/**
+ * Cambia el estado de una tarea (completada/pendiente)
+ * @param {string} taskId ID de la tarea
+ * @param {string} status Nuevo estado ('Completada' o 'Pendiente')
+ * @return {Object} Resultado de la operación
+ */
+function updateTaskStatus(taskId, status) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('Tareas');
+    
+    if (!sheet) {
+      return { success: false, message: 'No existe la hoja de tareas' };
+    }
+    
+    var data = sheet.getDataRange().getValues();
+    var rowIndex = -1;
+    
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === taskId) {
+        rowIndex = i + 1; // +1 porque las filas empiezan en 1
+        break;
+      }
+    }
+    
+    if (rowIndex < 0) {
+      return { success: false, message: 'No se encontró la tarea' };
+    }
+    
+    // Actualizar el estado y la fecha de completado si es necesario
+    sheet.getRange(rowIndex, 8).setValue(status); // Columna 8 = Estado
+    
+    // Si la tarea se marca como completada, actualizar la fecha de completado
+    if (status === 'Completada') {
+      sheet.getRange(rowIndex, 9).setValue(new Date()); // Columna 9 = Fecha Completada
+    } else {
+      sheet.getRange(rowIndex, 9).setValue(''); // Limpiar fecha de completado
+    }
+    
+    return { success: true };
+  } catch (error) {
+    Logger.log('Error al actualizar estado de tarea: ' + error.toString());
+    return { success: false, message: 'Error al actualizar la tarea: ' + error.toString() };
+  }
+}
+
+/**
+ * Elimina una tarea
+ * @param {string} taskId ID de la tarea a eliminar
+ * @return {Object} Resultado de la operación
+ */
+function deleteTask(taskId) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('Tareas');
+    
+    if (!sheet) {
+      return { success: false, message: 'No existe la hoja de tareas' };
+    }
+    
+    var data = sheet.getDataRange().getValues();
+    var rowIndex = -1;
+    
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === taskId) {
+        rowIndex = i + 1; // +1 porque las filas empiezan en 1
+        break;
+      }
+    }
+    
+    if (rowIndex < 0) {
+      return { success: false, message: 'No se encontró la tarea' };
+    }
+    
+    sheet.deleteRow(rowIndex);
+    
+    return { success: true };
+  } catch (error) {
+    Logger.log('Error al eliminar tarea: ' + error.toString());
+    return { success: false, message: 'Error al eliminar la tarea: ' + error.toString() };
+  }
+}
+
+/**
+ * Obtiene todas las tareas del usuario actual
+ * @return {Array} Lista de tareas
+ */
+function getTasks() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('Tareas');
+    
+    if (!sheet || sheet.getLastRow() < 2) {
+      return [];
+    }
+    
+    var data = sheet.getDataRange().getValues();
+    var tasks = [];
+    var currentUser = getCurrentUser();
+    var userEmail = currentUser ? currentUser.email : 'anonymous';
+    
+    for (var i = 1; i < data.length; i++) {
+      // Solo mostrar las tareas del usuario actual
+      if (data[i][1] === userEmail) {
+        tasks.push({
+          id: data[i][0],
+          description: data[i][2],
+          notes: data[i][3],
+          createdDate: data[i][4] instanceof Date ? data[i][4].toISOString() : data[i][4],
+          dueDate: data[i][5] instanceof Date ? Utilities.formatDate(data[i][5], Session.getScriptTimeZone(), 'yyyy-MM-dd') : data[i][5],
+          priority: data[i][6],
+          status: data[i][7],
+          completedDate: data[i][8] instanceof Date ? data[i][8].toISOString() : data[i][8]
+        });
+      }
+    }
+    
+    return tasks;
+  } catch (error) {
+    Logger.log('Error al obtener tareas: ' + error.toString());
+    throw new Error('Error al obtener las tareas: ' + error.toString());
+  }
+}
+
+// =================== NOTAS VARIAS ===================
+
+/**
+ * Guarda una nueva nota o actualiza una existente
+ * @param {Object} noteData Datos de la nota
+ * @return {Object} Resultado de la operación y datos de la nota guardada
+ */
+function saveNote(noteData) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('Notas');
+    var currentUser = getCurrentUser();
+    
+    // Crear la hoja si no existe
+    if (!sheet) {
+      sheet = ss.insertSheet('Notas');
+      sheet.appendRow(['ID', 'Usuario', 'Título', 'Contenido', 'Categoría', 'Fecha Creación', 'Fecha Modificación']);
+      sheet.getRange('A:A').setNumberFormat('@'); // Forzar formato de texto para IDs
+    }
+    
+    var timestamp = new Date();
+    var noteId = noteData.id || Utilities.getUuid();
+    
+    // Si es una actualización, buscar la fila correspondiente
+    if (noteData.id) {
+      var data = sheet.getDataRange().getValues();
+      var rowIndex = -1;
+      
+      for (var i = 1; i < data.length; i++) {
+        if (data[i][0] === noteData.id) {
+          rowIndex = i + 1; // +1 porque las filas empiezan en 1
+          break;
+        }
+      }
+      
+      if (rowIndex > 0) {
+        // Actualizar la nota existente
+        sheet.getRange(rowIndex, 3, 1, 5).setValues([[
+          noteData.title,
+          noteData.content,
+          noteData.category,
+          data[i][5], // Mantener la fecha de creación original
+          timestamp
+        ]]);
+      } else {
+        // El ID existe pero no se encontró (raro)
+        throw new Error('No se encontró la nota para actualizar');
+      }
+    } else {
+      // Es una nota nueva
+      sheet.appendRow([
+        noteId,
+        currentUser ? currentUser.email : 'anonymous',
+        noteData.title,
+        noteData.content,
+        noteData.category,
+        timestamp,
+        timestamp
+      ]);
+    }
+    
+    SpreadsheetApp.flush();
+    
+    return {
+      success: true,
+      noteId: noteId,
+      createdDate: timestamp.toISOString(),
+      message: noteData.id ? 'Nota actualizada correctamente' : 'Nota creada correctamente'
+    };
+  } catch (error) {
+    Logger.log('Error al guardar nota: ' + error.toString());
+    return {
+      success: false,
+      message: 'Error al guardar la nota: ' + error.toString()
+    };
+  }
+}
+
+/**
+ * Elimina una nota
+ * @param {string} noteId ID de la nota a eliminar
+ * @return {Object} Resultado de la operación
+ */
+function deleteNote(noteId) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('Notas');
+    
+    if (!sheet) {
+      return { success: false, message: 'No existe la hoja de notas' };
+    }
+    
+    var data = sheet.getDataRange().getValues();
+    var rowIndex = -1;
+    
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === noteId) {
+        rowIndex = i + 1; // +1 porque las filas empiezan en 1
+        break;
+      }
+    }
+    
+    if (rowIndex < 0) {
+      return { success: false, message: 'No se encontró la nota' };
+    }
+    
+    sheet.deleteRow(rowIndex);
+    
+    return { success: true };
+  } catch (error) {
+    Logger.log('Error al eliminar nota: ' + error.toString());
+    return { success: false, message: 'Error al eliminar la nota: ' + error.toString() };
+  }
+}
+
+/**
+ * Obtiene todas las notas del usuario actual
+ * @return {Array} Lista de notas
+ */
+function getNotes() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('Notas');
+    
+    if (!sheet || sheet.getLastRow() < 2) {
+      return [];
+    }
+    
+    var data = sheet.getDataRange().getValues();
+    var notes = [];
+    var currentUser = getCurrentUser();
+    var userEmail = currentUser ? currentUser.email : 'anonymous';
+    
+    for (var i = 1; i < data.length; i++) {
+      // Solo mostrar las notas del usuario actual
+      if (data[i][1] === userEmail) {
+        notes.push({
+          id: data[i][0],
+          title: data[i][2],
+          content: data[i][3],
+          category: data[i][4],
+          createdDate: data[i][5] instanceof Date ? data[i][5].toISOString() : data[i][5],
+          modifiedDate: data[i][6] instanceof Date ? data[i][6].toISOString() : data[i][6]
+        });
+      }
+    }
+    
+    return notes;
+  } catch (error) {
+    Logger.log('Error al obtener notas: ' + error.toString());
+    throw new Error('Error al obtener las notas: ' + error.toString());
+  }
+}
+
+// =================== CONTROL DOCUMENTAL ===================
+
+/**
+ * Importa datos de un edificio desde un archivo JSON
+ * @param {string} jsonData - Datos del edificio en formato JSON
+ * @return {Object} Resultado de la operación
+ */
+function importBuildingData(jsonData) {
+  try {
+    // Parsear datos JSON
+    var importData = JSON.parse(jsonData);
+    
+    // Validar datos
+    if (!importData.building || !importData.building.id) {
+      return { 
+        success: false, 
+        message: "El archivo no contiene datos válidos de edificio" 
+      };
+    }
+    
+    // Devolver datos validados para su procesamiento en el cliente
+    return { 
+      success: true, 
+      data: importData 
+    };
+  } catch (error) {
+    Logger.log('Error al importar datos de edificio: ' + error.toString());
+    return { 
+      success: false, 
+      message: "Error al importar datos: " + error.toString() 
+    };
+  }
+}
+
+/**
+ * Genera una vista previa HTML de los datos a importar
+ * @param {Object} importData - Datos del edificio a importar
+ * @return {string} HTML con la vista previa
+ */
+function generateBuildingPreview(importData) {
+  try {
+    var building = importData.building;
+    var html = "";
+    
+    html += "<h3>" + building.name + "</h3>";
+    html += "<p><strong>Dirección:</strong> " + (building.address || "No especificada") + "</p>";
+    html += "<p><strong>Documentos:</strong> " + (building.documents ? building.documents.length : 0) + "</p>";
+    
+    if (building.documents && building.documents.length > 0) {
+      html += "<h4>Documentos incluidos:</h4>";
+      html += "<ul>";
+      
+      // Mostrar hasta 10 documentos como muestra
+      var limit = Math.min(building.documents.length, 10);
+      for (var i = 0; i < limit; i++) {
+        var doc = building.documents[i];
+        html += "<li>" + doc.category + " - " + doc.type + ": " + doc.description + "</li>";
+      }
+      
+      if (building.documents.length > 10) {
+        html += "<li>... y " + (building.documents.length - 10) + " más</li>";
+      }
+      
+      html += "</ul>";
+    }
+    
+    return html;
+  } catch (error) {
+    Logger.log('Error al generar vista previa: ' + error.toString());
+    return "<p>Error al generar vista previa: " + error.toString() + "</p>";
+  }
+}// =================== CALENDARIO Y EVENTOS ===================
+
+/**
+ * Obtiene todos los eventos del calendario
+ * @return {Array} Lista de eventos
+ */
+function getCalendarEvents() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('CalendarEvents');
+    
+    if (!sheet || sheet.getLastRow() < 2) {
+      return [];
+    }
+    
+    var data = sheet.getDataRange().getValues();
+    var events = [];
+    var currentUser = getCurrentUser();
+    var userEmail = currentUser ? currentUser.email : 'anonymous';
+    
+    for (var i = 1; i < data.length; i++) {
+      // Solo mostrar los eventos del usuario actual
+      if (data[i][1] === userEmail) {
+        events.push({
+          id: data[i][0],
+          creator: data[i][1],
+          title: data[i][2],
+          description: data[i][3],
+          location: data[i][4],
+          startDate: data[i][5] instanceof Date ? data[i][5].toISOString() : data[i][5],
+          endDate: data[i][6] instanceof Date ? data[i][6].toISOString() : data[i][6],
+          color: data[i][7],
+          allDay: data[i][8],
+          reminderMinutes: data[i][9],
+          reminderSent: data[i][10],
+          created: data[i][11] instanceof Date ? data[i][11].toISOString() : data[i][11],
+          updated: data[i][12] instanceof Date ? data[i][12].toISOString() : data[i][12]
+        });
+      }
+    }
+    
+    return events;
+  } catch (error) {
+    Logger.log('Error al obtener eventos del calendario: ' + error.toString());
+    throw new Error('Error al obtener los eventos: ' + error.toString());
+  }
+}
+
+/**
+ * Guarda un evento del calendario (nuevo o existente)
+ * @param {Object} eventData Datos del evento
+ * @return {Object} Resultado de la operación
+ */
+function saveCalendarEvent(eventData) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('CalendarEvents');
+    var currentUser = getCurrentUser();
+    var timestamp = new Date();
+    
+    // Verificar usuario autenticado
+    if (!currentUser) {
+      return { success: false, message: 'Usuario no autenticado' };
+    }
+    
+    // Crear la hoja si no existe
+    if (!sheet) {
+      sheet = ss.insertSheet('CalendarEvents');
+      sheet.appendRow([
+        'ID', 'Creator', 'Title', 'Description', 'Location', 
+        'StartDate', 'EndDate', 'Color', 'AllDay', 'ReminderMinutes', 
+        'ReminderSent', 'Created', 'Updated'
+      ]);
+      sheet.getRange('A:A').setNumberFormat('@'); // Forzar formato de texto para IDs
+    }
+    
+    // Normalizar valores
+    var eventId = eventData.id || Utilities.getUuid();
+    var reminderMinutes = parseInt(eventData.reminderMinutes) || 0;
+    var allDay = Boolean(eventData.allDay);
+    
+    // Convertir fechas ISO a objetos Date
+    var startDate = new Date(eventData.startDate);
+    var endDate = new Date(eventData.endDate);
+    
+    // Si es una actualización, buscar el evento existente
+    if (eventData.id) {
+      var data = sheet.getDataRange().getValues();
+      var rowIndex = -1;
+      
+      for (var i = 1; i < data.length; i++) {
+        if (data[i][0] === eventData.id) {
+          rowIndex = i + 1; // +1 porque las filas empiezan en 1
+          break;
+        }
+      }
+      
+      if (rowIndex > 0) {
+        // Actualizar el evento existente
+        sheet.getRange(rowIndex, 3, 1, 10).setValues([[
+          eventData.title,
+          eventData.description || '',
+          eventData.location || '',
+          startDate,
+          endDate,
+          eventData.color || '#4285F4',
+          allDay,
+          reminderMinutes,
+          false, // Restablecer estado de recordatorio
+          timestamp
+        ]]);
+      } else {
+        return { success: false, message: 'Evento no encontrado' };
+      }
+    } else {
+      // Es un evento nuevo
+      sheet.appendRow([
+        eventId,
+        currentUser.email,
+        eventData.title,
+        eventData.description || '',
+        eventData.location || '',
+        startDate,
+        endDate,
+        eventData.color || '#4285F4',
+        allDay,
+        reminderMinutes,
+        false, // No se ha enviado recordatorio aún
+        timestamp,
+        timestamp
+      ]);
+    }
+    
+    SpreadsheetApp.flush();
+    
+    // Programar trigger para verificar recordatorios
+    setupReminderTrigger();
+    
+    return { 
+      success: true, 
+      message: eventData.id ? 'Evento actualizado correctamente' : 'Evento creado correctamente',
+      eventId: eventId
+    };
+  } catch (error) {
+    Logger.log('Error al guardar evento: ' + error.toString());
+    return {
+      success: false,
+      message: 'Error al guardar el evento: ' + error.toString()
+    };
+  }
+}
+
+/**
+ * Elimina un evento del calendario
+ * @param {string} eventId ID del evento a eliminar
+ * @return {Object} Resultado de la operación
+ */
+function deleteCalendarEvent(eventId) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('CalendarEvents');
+    
+    if (!sheet) {
+      return { success: false, message: 'No existe la hoja de eventos' };
+    }
+    
+    var data = sheet.getDataRange().getValues();
+    var rowIndex = -1;
+    
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === eventId) {
+        rowIndex = i + 1; // +1 porque las filas empiezan en 1
+        break;
+      }
+    }
+    
+    if (rowIndex < 0) {
+      return { success: false, message: 'No se encontró el evento' };
+    }
+    
+    sheet.deleteRow(rowIndex);
+    
+    return { success: true, message: 'Evento eliminado correctamente' };
+  } catch (error) {
+    Logger.log('Error al eliminar evento: ' + error.toString());
+    return { success: false, message: 'Error al eliminar el evento: ' + error.toString() };
+  }
+}
+
+/**
+ * Configura un trigger para verificar recordatorios de eventos
+ */
+function setupReminderTrigger() {
+  // Eliminar triggers existentes para evitar duplicados
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'checkEventReminders') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  
+  // Crear nuevo trigger para ejecutar cada 5 minutos
+  ScriptApp.newTrigger('checkEventReminders')
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+}
+
+/**
+ * Verifica y envía recordatorios de eventos
+ */
+function checkEventReminders() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('CalendarEvents');
+    
+    if (!sheet || sheet.getLastRow() < 2) {
+      return;
+    }
+    
+    var now = new Date();
+    var data = sheet.getDataRange().getValues();
+    
+    for (var i = 1; i < data.length; i++) {
+      var eventId = data[i][0];
+      var userEmail = data[i][1];
+      var title = data[i][2];
+      var description = data[i][3];
+      var location = data[i][4];
+      var startDate = new Date(data[i][5]);
+      var reminderMinutes = parseInt(data[i][9]);
+      var reminderSent = data[i][10];
+      
+      // Verificar si el evento tiene recordatorio y no se ha enviado aún
+      if (reminderMinutes > 0 && !reminderSent) {
+        // Calcular tiempo para el recordatorio
+        var reminderTime = new Date(startDate.getTime() - (reminderMinutes * 60 * 1000));
+        
+        // Verificar si es hora de enviar el recordatorio
+        if (now >= reminderTime && now < startDate) {
+          // Enviar recordatorio por correo
+          sendEventReminder(userEmail, title, description, location, startDate);
+          
+          // Actualizar estado de recordatorio
+          sheet.getRange(i + 1, 11).setValue(true);
+        }
+      }
+    }
+  } catch (error) {
+    Logger.log('Error al verificar recordatorios: ' + error.toString());
+  }
+}
+
+/**
+ * Envía un recordatorio de evento por correo electrónico
+ * @param {string} email Correo del destinatario
+ * @param {string} title Título del evento
+ * @param {string} description Descripción del evento
+ * @param {string} location Ubicación del evento
+ * @param {Date} startDate Fecha de inicio del evento
+ */
+function sendEventReminder(email, title, description, location, startDate) {
+  try {
+    var formattedDate = Utilities.formatDate(startDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    
+    var subject = 'Recordatorio: ' + title;
+    
+    var body = 'Recordatorio de evento próximo:<br><br>' +
+               '<strong>Título:</strong> ' + title + '<br>' +
+               '<strong>Fecha y hora:</strong> ' + formattedDate + '<br>';
+    
+    if (location) {
+      body += '<strong>Ubicación:</strong> ' + location + '<br>';
+    }
+    
+    if (description) {
+      body += '<br><strong>Descripción:</strong><br>' + description.replace(/\n/g, '<br>');
+    }
+    
+    body += '<br><br>Este es un recordatorio automático de su Agenda Personal.';
+    
+    // Enviar correo
+    MailApp.sendEmail({
+      to: email,
+      subject: subject,
+      htmlBody: body
+    });
+    
+    Logger.log('Recordatorio enviado a: ' + email);
+  } catch (error) {
+    Logger.log('Error al enviar recordatorio: ' + error.toString());
+  }
+}

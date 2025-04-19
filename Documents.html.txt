@@ -1,0 +1,70 @@
+<div id="documentsPage" class="page">
+  <h2>Registro de Documentos</h2>
+  <div class="documents-container">
+    <!-- Sección de carga de archivos -->
+    <div class="upload-section">
+      <h3>Subir nuevo documento</h3>
+      <form id="uploadForm">
+        <div class="file-input-container">
+          <input type="file" id="fileInput" multiple>
+        </div>
+        <div class="file-metadata">
+          <label>Descripción (opcional):
+            <input type="text" id="fileDescription" placeholder="Describe el documento...">
+          </label>
+          <label>Categoría:
+            <select id="fileCategory">
+              <option value="General">General</option>
+              <option value="Contrato">Contrato</option>
+              <option value="Factura">Factura</option>
+              <option value="Informe">Informe</option>
+              <option value="Otro">Otro</option>
+            </select>
+          </label>
+        </div>
+        <button type="button" onclick="uploadFiles()" class="upload-button">Subir Documento(s)</button>
+      </form>
+      <div id="uploadStatus" class="status"></div>
+      <div id="progressBar" class="progress-bar">
+        <div class="progress" style="width: 0%;"></div>
+      </div>
+    </div>
+
+    <!-- Herramientas de filtrado -->
+    <div class="documents-filters">
+      <h3>Documentos en Drive</h3>
+      <div class="filter-controls">
+        <input type="text" id="searchInput" placeholder="Buscar por nombre..." onkeyup="filterDocuments()">
+        <select id="categoryFilter" onchange="filterDocuments()">
+          <option value="">Todas las categorías</option>
+          <option value="General">General</option>
+          <option value="Contrato">Contrato</option>
+          <option value="Factura">Factura</option>
+          <option value="Informe">Informe</option>
+          <option value="Otro">Otro</option>
+        </select>
+        <button onclick="refreshDocumentsList()">Actualizar lista</button>
+      </div>
+    </div>
+
+    <!-- Tabla de documentos -->
+    <div class="documents-table-container">
+      <table id="documentsTable" class="register-table">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Tipo</th>
+            <th>Tamaño</th>
+            <th>Categoría</th>
+            <th>Descripción</th>
+            <th>Fecha</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="loadingDocs" class="loading-indicator">Cargando documentos...</div>
+      <div id="noDocsMessage" class="no-data-message" style="display: none;">No se encontraron documentos</div>
+    </div>
+  </div>
+</div>

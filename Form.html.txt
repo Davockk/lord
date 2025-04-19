@@ -1,0 +1,16 @@
+<div id="formPage" class="page">
+  <h2>Formulario de Datos Personales</h2>
+  <form id="myForm">
+    <label>Nombre:<br><input type="text" name="name" required></label><br><br>
+    <label>Email:<br><input type="email" name="email" required></label><br><br>
+    <label>Teléfono:<br><input type="text" name="phone"></label><br><br>
+    <label>Dirección:<br><input type="text" name="address"></label><br><br>
+    <button type="button" onclick="submitForm()">Enviar</button>
+  </form>
+  <div id="status"></div>
+  <h3>Registro de Envíos</h3>
+  <table id="logTable">
+    <thead><tr><th>Hora</th><th>Nombre</th><th>Email</th><th>Teléfono</th><th>Dirección</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>

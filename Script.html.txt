@@ -1,0 +1,3138 @@
+<script>
+  // Establecer fechas por defecto como hoy
+  window.onload = function() {
+    // Inicialización general
+    var today = new Date();
+    var dateString = today.toISOString().split('T')[0];
+    
+    // Inicializar fechas de formularios si existen
+    var dateInputs = document.querySelectorAll('input[type="date"]');
+    dateInputs.forEach(function(input) {
+      input.value = dateString;
+    });
+  };
+
+  // Manejo de navegación
+  document.querySelectorAll('.nav button').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var page = btn.getAttribute('data-page');
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById(page).classList.add('active');
+      if (page === 'formPage') loadEntries();
+      if (page === 'calendarPage') renderCalendar();
+      if (page === 'voiceToTextPage') loadVoiceEntries();
+      if (page === 'attendancePage') loadAttendanceEntries();
+      if (page === 'paymentsPage') loadPaymentEntries();
+      if (page === 'documentsPage') loadDocuments();
+      if (page === 'tasksPage') loadTasks();
+      if (page === 'notesPage') loadNotes();
+      if (page === 'documentControlPage') initDocumentControl();
+    });
+  });
+
+  // =========== FORMULARIO ORIGINAL ===========
+  function submitForm() {
+    var form = document.getElementById('myForm');
+    var data = { name: form.name.value, email: form.email.value, phone: form.phone.value, address: form.address.value };
+    google.script.run
+      .withSuccessHandler(function() { document.getElementById('status').innerText = '¡Datos guardados!'; form.reset(); loadEntries(); })
+      .withFailureHandler(function(err) { document.getElementById('status').style.color = 'red'; document.getElementById('status').innerText = 'Error: ' + err.message; })
+      .processForm(data);
+  }
+
+  function loadEntries() {
+    google.script.run.withSuccessHandler(renderEntries).getEntries();
+  }
+
+  function renderEntries(entries) {
+    var tbody = document.querySelector('#logTable tbody'); tbody.innerHTML = '';
+    entries.forEach(function(e) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + new Date(e.timestamp).toLocaleString() + '</td>' +
+                   '<td>' + e.name + '</td>' +
+                   '<td>' + e.email + '</td>' +
+                   '<td>' + e.phone + '</td>' +
+                   '<td>' + e.address + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  // =========== CALENDARIO ===========
+  var today = new Date(), currentMonth = today.getMonth(), currentYear = today.getFullYear();
+  var months = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  
+  function renderCalendar() {
+    var firstDay = new Date(currentYear, currentMonth, 1).getDay();
+    var daysInMonth = 32 - new Date(currentYear, currentMonth, 32).getDate();
+    var html = '<table><thead><tr>' + ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].map(d => '<th>'+d+'</th>').join('') + '</tr></thead><tbody><tr>';
+    
+    for (var i = 0; i < firstDay; i++) html += '<td></td>';
+    var date = 1;
+    while (date <= daysInMonth) {
+      for (var j = firstDay; j < 7 && date <= daysInMonth; j++) {
+        html += '<td>' + date++ + '</td>';
+      }
+      html += '</tr><tr>';
+      firstDay = 0;
+    }
+    html += '</tr></tbody></table>';
+    document.getElementById('calendar').innerHTML = html;
+    document.getElementById('monthYear').innerText = months[currentMonth] + ' ' + currentYear;
+  }
+  
+  function prevMonth() { 
+    currentMonth = (currentMonth === 0 ? 11 : currentMonth - 1); 
+    if (currentMonth === 11) currentYear--; 
+    renderCalendar(); 
+  }
+  
+  function nextMonth() { 
+    currentMonth = (currentMonth + 1) % 12; 
+    if (currentMonth === 0) currentYear++; 
+    renderCalendar(); 
+  }
+
+  // =========== CALCULADORA ===========
+  function appendToCalc(value) {
+    document.getElementById('calcDisplay').value += value;
+  }
+  
+  function clearCalc() {
+    document.getElementById('calcDisplay').value = '';
+  }
+  
+  function backspaceCalc() {
+    var display = document.getElementById('calcDisplay');
+    display.value = display.value.slice(0, -1);
+  }
+  
+  function calculateResult() {
+    var display = document.getElementById('calcDisplay');
+    try {
+      display.value = eval(display.value);
+    } catch (e) {
+      display.value = 'Error';
+    }
+  }
+
+  // =========== GRABADORA DE VOZ A TEXTO ===========
+  var recognition;
+  var finalTranscript = '';
+  
+  function startVoiceRecording() {
+    // Comprobar si el navegador soporta reconocimiento de voz
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      document.getElementById('voiceStatus').innerText = 'Tu navegador no soporta reconocimiento de voz. Intenta con Chrome.';
+      return;
+    }
+    
+    // Inicializar reconocimiento de voz
+    recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'es-ES';
+    
+    recognition.onstart = function() {
+      document.getElementById('voiceStatus').innerText = 'Escuchando... Habla ahora.';
+    };
+    
+    recognition.onerror = function(event) {
+      document.getElementById('voiceStatus').innerText = 'Error: ' + event.error;
+    };
+    
+    recognition.onend = function() {
+      document.getElementById('voiceStatus').innerText = 'Reconocimiento de voz detenido.';
+    };
+    
+    recognition.onresult = function(event) {
+      var interimTranscript = '';
+      
+      for (var i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript + ' ';
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
+      }
+      
+      document.getElementById('voiceText').value = finalTranscript + interimTranscript;
+    };
+    
+    // Iniciar reconocimiento
+    finalTranscript = '';
+    recognition.start();
+  }
+  
+  function stopVoiceRecording() {
+    if (recognition) {
+      recognition.stop();
+    }
+  }
+  
+  function saveVoiceText() {
+    var text = document.getElementById('voiceText').value.trim();
+    if (!text) {
+      document.getElementById('voiceSaveStatus').innerText = 'Error: No hay texto para guardar.';
+      document.getElementById('voiceSaveStatus').style.color = 'red';
+      return;
+    }
+    
+    google.script.run
+      .withSuccessHandler(function() {
+        document.getElementById('voiceSaveStatus').innerText = '¡Texto guardado!';
+        document.getElementById('voiceSaveStatus').style.color = 'green';
+        loadVoiceEntries();
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('voiceSaveStatus').style.color = 'red';
+        document.getElementById('voiceSaveStatus').innerText = 'Error: ' + err.message;
+      })
+      .saveVoiceText(text);
+  }
+  
+  function loadVoiceEntries() {
+    google.script.run.withSuccessHandler(renderVoiceEntries).getVoiceEntries();
+  }
+  
+  function renderVoiceEntries(entries) {
+    var tbody = document.querySelector('#voiceTable tbody');
+    tbody.innerHTML = '';
+    
+    if (!entries || entries.length === 0) {
+      return;
+    }
+    
+    entries.forEach(function(entry) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + new Date(entry.timestamp).toLocaleString() + '</td>' +
+                    '<td>' + entry.text + '</td>' +
+                    '<td><button onclick="deleteVoiceEntry(\'' + entry.id + '\')">Eliminar</button></td>';
+      tbody.appendChild(tr);
+    });
+  }
+  
+  function deleteVoiceEntry(id) {
+    if (confirm('¿Estás seguro de que quieres eliminar este registro?')) {
+      google.script.run
+        .withSuccessHandler(function() {
+          loadVoiceEntries();
+        })
+        .deleteVoiceEntry(id);
+    }
+  }
+
+  // =========== CONTROL DE ASISTENCIA ===========
+  function submitAttendance() {
+    var form = document.getElementById('attendanceForm');
+    var data = {
+      date: form.date.value,
+      name: form.name.value,
+      status: form.status.value,
+      observations: form.observations.value
+    };
+    
+    if (!data.date || !data.name || !data.status) {
+      document.getElementById('attendanceStatus').innerText = 'Error: Completa los campos obligatorios.';
+      document.getElementById('attendanceStatus').style.color = 'red';
+      return;
+    }
+    
+    google.script.run
+      .withSuccessHandler(function() {
+        document.getElementById('attendanceStatus').innerText = '¡Asistencia registrada!';
+        document.getElementById('attendanceStatus').style.color = 'green';
+        form.reset();
+        form.date.value = new Date().toISOString().split('T')[0];
+        loadAttendanceEntries();
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('attendanceStatus').style.color = 'red';
+        document.getElementById('attendanceStatus').innerText = 'Error: ' + err.message;
+      })
+      .saveAttendance(data);
+  }
+  
+  function loadAttendanceEntries() {
+    google.script.run.withSuccessHandler(renderAttendanceEntries).getAttendanceEntries();
+  }
+  
+  function renderAttendanceEntries(entries) {
+    var tbody = document.querySelector('#attendanceTable tbody');
+    tbody.innerHTML = '';
+    
+    if (!entries || entries.length === 0) {
+      return;
+    }
+    
+    // Obtener el filtro de fecha
+    var filterDate = document.getElementById('attendanceFilterDate').value;
+    
+    entries.forEach(function(entry) {
+      // Si hay un filtro de fecha, aplicarlo
+      if (filterDate && entry.date !== filterDate) {
+        return;
+      }
+      
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + entry.date + '</td>' +
+                    '<td>' + entry.name + '</td>' +
+                    '<td>' + entry.status + '</td>' +
+                    '<td>' + (entry.observations || '') + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+  
+  function filterAttendance() {
+    loadAttendanceEntries();
+  }
+  
+  function resetAttendanceFilter() {
+    document.getElementById('attendanceFilterDate').value = '';
+    loadAttendanceEntries();
+  }
+
+  // =========== REGISTRO DE PAGOS ===========
+  function submitPayment() {
+    var form = document.getElementById('paymentForm');
+    var data = {
+      date: form.date.value,
+      clientName: form.clientName.value,
+      concept: form.concept.value,
+      amount: form.amount.value,
+      method: form.method.value,
+      observations: form.observations.value
+    };
+    
+    if (!data.date || !data.clientName || !data.concept || !data.amount || !data.method) {
+      document.getElementById('paymentStatus').innerText = 'Error: Completa los campos obligatorios.';
+      document.getElementById('paymentStatus').style.color = 'red';
+      return;
+    }
+    
+    google.script.run
+      .withSuccessHandler(function() {
+        document.getElementById('paymentStatus').innerText = '¡Pago registrado!';
+        document.getElementById('paymentStatus').style.color = 'green';
+        form.reset();
+        form.date.value = new Date().toISOString().split('T')[0];
+        loadPaymentEntries();
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('paymentStatus').style.color = 'red';
+        document.getElementById('paymentStatus').innerText = 'Error: ' + err.message;
+      })
+      .savePayment(data);
+  }
+  
+  function loadPaymentEntries() {
+    google.script.run.withSuccessHandler(renderPaymentEntries).getPaymentEntries();
+  }
+  
+  function renderPaymentEntries(entries) {
+    var tbody = document.querySelector('#paymentTable tbody');
+    tbody.innerHTML = '';
+    
+    if (!entries || entries.length === 0) {
+      return;
+    }
+    
+    // Obtener el filtro de fecha
+    var filterDate = document.getElementById('paymentFilterDate').value;
+    
+    entries.forEach(function(entry) {
+      // Si hay un filtro de fecha, aplicarlo
+      if (filterDate && entry.date !== filterDate) {
+        return;
+      }
+      
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + entry.date + '</td>' +
+                    '<td>' + entry.clientName + '</td>' +
+                    '<td>' + entry.concept + '</td>' +
+                    '<td>' + parseFloat(entry.amount).toFixed(2) + '</td>' +
+                    '<td>' + entry.method + '</td>' +
+                    '<td>' + (entry.observations || '') + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+  
+  function filterPayments() {
+    loadPaymentEntries();
+  }
+  
+  function resetPaymentFilter() {
+    document.getElementById('paymentFilterDate').value = '';
+    loadPaymentEntries();
+  }
+  
+  // =========== REGISTRO DE DOCUMENTOS ===========
+  
+  function loadDocuments() {
+    document.getElementById('loadingDocs').style.display = 'block';
+    document.getElementById('noDocsMessage').style.display = 'none';
+    document.querySelector('#documentsTable tbody').innerHTML = '';
+    
+    google.script.run
+      .withSuccessHandler(renderDocuments)
+      .withFailureHandler(handleDocumentsError)
+      .getDocumentsFromDrive();
+  }
+  
+  function renderDocuments(documents) {
+    document.getElementById('loadingDocs').style.display = 'none';
+    var tbody = document.querySelector('#documentsTable tbody');
+    tbody.innerHTML = '';
+    
+    if (!documents || documents.length === 0) {
+      document.getElementById('noDocsMessage').style.display = 'block';
+      return;
+    }
+    
+    documents.forEach(function(doc) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = 
+        '<td>' + doc.name + '</td>' +
+        '<td>' + doc.mimeType + '</td>' +
+        '<td>' + formatFileSize(doc.size) + '</td>' +
+        '<td>' + (doc.category || 'General') + '</td>' +
+        '<td>' + (doc.description || '') + '</td>' +
+        '<td>' + formatDate(doc.dateTime) + '</td>' +
+        '<td class="action-buttons">' +
+          '<button class="view-btn" onclick="viewDocument(\'' + doc.id + '\')">Ver</button>' +
+          '<button class="delete-btn" onclick="deleteDocument(\'' + doc.id + '\', \'' + doc.name + '\')">Eliminar</button>' +
+        '</td>';
+      tbody.appendChild(tr);
+    });
+    
+    // Aplicar filtros si hay alguno
+    filterDocuments();
+  }
+  
+  function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    var k = 1024;
+    var sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    var i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+  
+  function formatDate(dateString) {
+    if (!dateString) return '';
+    var date = new Date(dateString);
+    return date.toLocaleString();
+  }
+  
+  function handleDocumentsError(error) {
+    document.getElementById('loadingDocs').style.display = 'none';
+    document.getElementById('noDocsMessage').style.display = 'block';
+    document.getElementById('noDocsMessage').innerText = 'Error al cargar documentos: ' + error.message;
+  }
+  
+  function uploadFiles() {
+    var fileInput = document.getElementById('fileInput');
+    var description = document.getElementById('fileDescription').value;
+    var category = document.getElementById('fileCategory').value;
+    
+    if (fileInput.files.length === 0) {
+      document.getElementById('uploadStatus').innerText = 'Por favor, selecciona al menos un archivo.';
+      document.getElementById('uploadStatus').style.color = 'red';
+      return;
+    }
+    
+    document.getElementById('uploadStatus').innerText = 'Subiendo archivos...';
+    document.getElementById('uploadStatus').style.color = 'blue';
+    document.getElementById('progressBar').style.display = 'block';
+    
+    // Para cada archivo, creamos una promesa de carga
+    var uploadPromises = Array.from(fileInput.files).map(function(file, index) {
+      return new Promise(function(resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          var content = e.target.result.split(',')[1]; // Obtiene el base64 sin el prefijo
+          
+          // Actualizar progreso para este archivo individual
+          updateProgress((index / fileInput.files.length) * 100);
+          
+          google.script.run
+            .withSuccessHandler(function(result) {
+              resolve(result);
+            })
+            .withFailureHandler(function(error) {
+              reject(error);
+            })
+            .uploadFileToDrive(file.name, content, file.type, description, category);
+        };
+        reader.onerror = function(error) {
+          reject(error);
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+    
+    Promise.all(uploadPromises)
+      .then(function(results) {
+        updateProgress(100);
+        document.getElementById('uploadStatus').innerText = 'Todos los archivos se han subido correctamente.';
+        document.getElementById('uploadStatus').style.color = 'green';
+        document.getElementById('fileInput').value = '';
+        document.getElementById('fileDescription').value = '';
+        setTimeout(function() {
+          document.getElementById('progressBar').style.display = 'none';
+          loadDocuments();
+        }, 1000);
+      })
+      .catch(function(error) {
+        document.getElementById('uploadStatus').innerText = 'Error al subir archivos: ' + error.message;
+        document.getElementById('uploadStatus').style.color = 'red';
+        document.getElementById('progressBar').style.display = 'none';
+      });
+  }
+  
+  function updateProgress(percentage) {
+    document.querySelector('#progressBar .progress').style.width = percentage + '%';
+  }
+  
+  function filterDocuments() {
+    var searchText = document.getElementById('searchInput').value.toLowerCase();
+    var categoryFilter = document.getElementById('categoryFilter').value;
+    var rows = document.querySelectorAll('#documentsTable tbody tr');
+    
+    rows.forEach(function(row) {
+      var fileName = row.cells[0].textContent.toLowerCase();
+      var category = row.cells[3].textContent;
+      var matchesSearch = !searchText || fileName.includes(searchText);
+      var matchesCategory = !categoryFilter || category === categoryFilter;
+      
+      if (matchesSearch && matchesCategory) {
+        row.style.display = '';
+      } else {
+        row.style.display = 'none';
+      }
+    });
+    
+    // Mostrar mensaje si no hay resultados
+    var visibleRows = document.querySelectorAll('#documentsTable tbody tr:not([style*="display: none"])');
+    if (visibleRows.length === 0) {
+      document.getElementById('noDocsMessage').style.display = 'block';
+      document.getElementById('noDocsMessage').innerText = 'No se encontraron documentos que coincidan con los criterios de búsqueda.';
+    } else {
+      document.getElementById('noDocsMessage').style.display = 'none';
+    }
+  }
+  
+  function refreshDocumentsList() {
+    loadDocuments();
+  }
+  
+  function viewDocument(fileId) {
+    google.script.run
+      .withSuccessHandler(function(url) {
+        window.open(url, '_blank');
+      })
+      .getDocumentViewUrl(fileId);
+  }
+  
+  function deleteDocument(fileId, fileName) {
+    if (confirm('¿Estás seguro de que quieres eliminar el archivo "' + fileName + '"?')) {
+      google.script.run
+        .withSuccessHandler(function() {
+          alert('El archivo "' + fileName + '" ha sido eliminado.');
+          loadDocuments();
+        })
+        .withFailureHandler(function(error) {
+          alert('Error al eliminar el archivo: ' + error.message);
+        })
+        .deleteDocument(fileId);
+    }
+  }
+  
+  // =========== GESTIÓN DE TAREAS ===========
+  var tasks = []; // Array global para almacenar las tareas
+  
+  function loadTasks() {
+    // Mostrar un indicador de carga si es necesario
+    document.getElementById('taskList').innerHTML = '<div class="loading-indicator">Cargando tareas...</div>';
+    document.getElementById('noTasksMessage').style.display = 'none';
+    
+    google.script.run
+      .withSuccessHandler(renderTasks)
+      .withFailureHandler(function(error) {
+        document.getElementById('taskList').innerHTML = '<div class="error-message">Error al cargar tareas: ' + error.message + '</div>';
+      })
+      .getTasks();
+  }
+  
+  function renderTasks(tasksData) {
+    tasks = tasksData; // Guardar en variable global
+    var taskList = document.getElementById('taskList');
+    taskList.innerHTML = ''; // Limpiar lista
+    
+    if (!tasksData || tasksData.length === 0) {
+      document.getElementById('noTasksMessage').style.display = 'block';
+      return;
+    }
+    
+    // Aplicar filtros si están activos
+    var filteredTasks = filterTasksArray(tasksData);
+    
+    if (filteredTasks.length === 0) {
+      document.getElementById('noTasksMessage').style.display = 'block';
+      document.getElementById('noTasksMessage').innerText = 'No hay tareas que coincidan con los filtros seleccionados';
+      return;
+    }
+    
+    // Ordenar tareas: primero pendientes (por prioridad), luego completadas
+    filteredTasks.sort(function(a, b) {
+      // Primero por estado (pendientes primero)
+      if (a.status !== b.status) {
+        return a.status === 'Completada' ? 1 : -1;
+      }
+      
+      // Si ambas están pendientes, ordenar por prioridad
+      if (a.status === 'Pendiente') {
+        const priorityOrder = { 'Urgente': 0, 'Alta': 1, 'Media': 2, 'Baja': 3 };
+        return priorityOrder[a.priority] - priorityOrder[b.priority];
+      }
+      
+      // Si ambas están completadas, ordenar por fecha de completado (más reciente primero)
+      return new Date(b.completedDate) - new Date(a.completedDate);
+    });
+    
+    // Renderizar cada tarea
+    filteredTasks.forEach(function(task) {
+      var taskElement = document.createElement('div');
+      taskElement.className = 'task-item' + (task.status === 'Completada' ? ' task-completed' : '');
+      
+      // Formatear fecha límite si existe
+      var dueDateFormatted = '';
+      if (task.dueDate) {
+        var dueDate = new Date(task.dueDate);
+        dueDateFormatted = dueDate.toLocaleDateString();
+        
+        // Verificar si la fecha límite ya pasó
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (dueDate < today && task.status !== 'Completada') {
+          taskElement.classList.add('task-overdue');
+        }
+      }
+      
+      taskElement.innerHTML = `
+        <input type="checkbox" class="task-checkbox" ${task.status === 'Completada' ? 'checked' : ''} 
+          onchange="toggleTaskStatus('${task.id}', this.checked)">
+        <div class="task-content">
+          <div class="task-title">${task.description}</div>
+          ${task.notes ? `<div class="task-notes">${task.notes}</div>` : ''}
+          <div class="task-meta">
+            ${dueDateFormatted ? `<span class="task-due-date">Vence: ${dueDateFormatted}</span>` : ''}
+            <span class="task-priority priority-${task.priority}">${task.priority}</span>
+          </div>
+        </div>
+        <div class="task-actions">
+          <button class="task-button" onclick="deleteTask('${task.id}')">🗑️</button>
+        </div>
+      `;
+      
+      taskList.appendChild(taskElement);
+    });
+    
+    document.getElementById('noTasksMessage').style.display = 'none';
+  }
+  
+  function saveTask() {
+    var form = document.getElementById('taskForm');
+    var description = document.getElementById('taskDescription').value.trim();
+    var dueDate = document.getElementById('taskDueDate').value;
+    var priority = document.getElementById('taskPriority').value;
+    var notes = document.getElementById('taskNotes').value.trim();
+    
+    if (!description) {
+      document.getElementById('taskStatus').innerText = 'Por favor, ingresa una descripción para la tarea.';
+      document.getElementById('taskStatus').style.color = 'red';
+      return;
+    }
+    
+    var taskData = {
+      description: description,
+      dueDate: dueDate,
+      priority: priority,
+      notes: notes
+    };
+    
+    document.getElementById('taskStatus').innerText = 'Guardando tarea...';
+    document.getElementById('taskStatus').style.color = 'blue';
+    
+    google.script.run
+      .withSuccessHandler(function(result) {
+        if (result.success) {
+          document.getElementById('taskStatus').innerText = result.message;
+          document.getElementById('taskStatus').style.color = 'green';
+          
+          // Limpiar formulario
+          form.reset();
+          document.getElementById('taskDueDate').value = new Date().toISOString().split('T')[0];
+          
+          // Recargar tareas
+          loadTasks();
+          
+          // Ocultar mensaje después de 3 segundos
+          setTimeout(function() {
+            document.getElementById('taskStatus').innerText = '';
+          }, 3000);
+        } else {
+          document.getElementById('taskStatus').innerText = result.message;
+          document.getElementById('taskStatus').style.color = 'red';
+        }
+      })
+      .withFailureHandler(function(error) {
+        document.getElementById('taskStatus').innerText = 'Error: ' + error.message;
+        document.getElementById('taskStatus').style.color = 'red';
+      })
+      .saveTask(taskData);
+  }
+  
+  function toggleTaskStatus(taskId, isChecked) {
+    var newStatus = isChecked ? 'Completada' : 'Pendiente';
+    
+    google.script.run
+      .withSuccessHandler(function(result) {
+        if (result.success) {
+          loadTasks(); // Recargar tareas para reflejar cambios
+        } else {
+          alert('Error al actualizar la tarea: ' + result.message);
+          // Revertir el checkbox al estado anterior en caso de error
+          var checkbox = document.querySelector(`input[type="checkbox"][onchange*="${taskId}"]`);
+          if (checkbox) checkbox.checked = !isChecked;
+        }
+      })
+      .withFailureHandler(function(error) {
+        alert('Error al actualizar la tarea: ' + error.message);
+        // Revertir el checkbox al estado anterior
+        var checkbox = document.querySelector(`input[type="checkbox"][onchange*="${taskId}"]`);
+        if (checkbox) checkbox.checked = !isChecked;
+      })
+      .updateTaskStatus(taskId, newStatus);
+  }
+  
+  function deleteTask(taskId) {
+    if (confirm('¿Estás seguro de que quieres eliminar esta tarea?')) {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            loadTasks(); // Recargar tareas
+          } else {
+            alert('Error al eliminar la tarea: ' + result.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          alert('Error al eliminar la tarea: ' + error.message);
+        })
+        .deleteTask(taskId);
+    }
+  }
+  
+  function filterTasks() {
+    if (tasks.length === 0) return; // Si no hay tareas, no hacer nada
+    renderTasks(tasks); // Re-renderizar con los filtros aplicados
+  }
+  
+  function filterTasksArray(tasksArray) {
+    var statusFilter = document.getElementById('filterStatus').value;
+    var priorityFilter = document.getElementById('filterPriority').value;
+    var dueDateFilter = document.getElementById('filterDueDate').value;
+    
+    return tasksArray.filter(function(task) {
+      // Aplicar filtro de estado
+      if (statusFilter && task.status !== statusFilter) {
+        return false;
+      }
+      
+      // Aplicar filtro de prioridad
+      if (priorityFilter && task.priority !== priorityFilter) {
+        return false;
+      }
+      
+      // Aplicar filtro de fecha límite
+      if (dueDateFilter && (!task.dueDate || task.dueDate !== dueDateFilter)) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  function resetTaskFilters() {
+    document.getElementById('filterStatus').value = '';
+    document.getElementById('filterPriority').value = '';
+    document.getElementById('filterDueDate').value = '';
+    filterTasks();
+  }
+  
+  // =========== NOTAS VARIAS ===========
+  var notes = []; // Array global para almacenar las notas
+  var currentCategory = ''; // Categoría actualmente seleccionada
+  var currentNoteId = null; // ID de la nota en edición
+  
+  function loadNotes() {
+    // Mostrar un indicador de carga
+    document.getElementById('notesList').innerHTML = '<div class="loading-indicator">Cargando notas...</div>';
+    document.getElementById('noNotesMessage').style.display = 'none';
+    
+    google.script.run
+      .withSuccessHandler(renderNotes)
+      .withFailureHandler(function(error) {
+        document.getElementById('notesList').innerHTML = '<div class="error-message">Error al cargar notas: ' + error.message + '</div>';
+      })
+      .getNotes();
+  }
+  
+  function renderNotes(notesData) {
+    notes = notesData; // Guardar en variable global
+    var notesList = document.getElementById('notesList');
+    notesList.innerHTML = ''; // Limpiar lista
+    
+    if (!notesData || notesData.length === 0) {
+      document.getElementById('noNotesMessage').style.display = 'block';
+      return;
+    }
+    
+    // Aplicar filtro por categoría si está activo
+    var filteredNotes = notesData;
+    if (currentCategory) {
+      filteredNotes = notesData.filter(function(note) {
+        return note.category === currentCategory;
+      });
+    }
+    
+    if (filteredNotes.length === 0) {
+      document.getElementById('noNotesMessage').style.display = 'block';
+      document.getElementById('noNotesMessage').innerText = 'No hay notas en esta categoría';
+      return;
+    }
+    
+    // Ordenar notas por fecha de modificación (más reciente primero)
+    filteredNotes.sort(function(a, b) {
+      return new Date(b.modifiedDate) - new Date(a.modifiedDate);
+    });
+    
+    // Renderizar cada nota
+    filteredNotes.forEach(function(note) {
+      var noteElement = document.createElement('div');
+      noteElement.className = 'note-card category-' + note.category;
+      noteElement.setAttribute('data-id', note.id);
+      noteElement.onclick = function() { showNoteForm(note.id); };
+      
+      // Formatear fecha
+      var dateFormatted = new Date(note.modifiedDate).toLocaleDateString();
+      
+      noteElement.innerHTML = `
+        <div class="note-category">${note.category}</div>
+        <div class="note-title">${note.title}</div>
+        <div class="note-content">${note.content}</div>
+        <div class="note-date">${dateFormatted}</div>
+      `;
+      
+      notesList.appendChild(noteElement);
+    });
+    
+    document.getElementById('noNotesMessage').style.display = 'none';
+  }
+  
+  function showNoteForm(noteId) {
+    // Si es una nueva nota
+    if (!noteId) {
+      document.getElementById('noteFormTitle').innerText = 'Nueva Nota';
+      document.getElementById('noteId').value = '';
+      document.getElementById('noteTitle').value = '';
+      document.getElementById('noteCategory').value = 'Personal';
+      document.getElementById('noteContent').value = '';
+      currentNoteId = null;
+    } else {
+      // Si es una nota existente
+      var note = notes.find(function(n) { return n.id === noteId; });
+      if (!note) return;
+      
+      document.getElementById('noteFormTitle').innerText = 'Editar Nota';
+      document.getElementById('noteId').value = note.id;
+      document.getElementById('noteTitle').value = note.title;
+      document.getElementById('noteCategory').value = note.category;
+      document.getElementById('noteContent').value = note.content;
+      currentNoteId = noteId;
+    }
+    
+    // Mostrar el formulario
+    document.getElementById('noteForm').style.display = 'flex';
+  }
+  
+  function cancelNoteForm() {
+    document.getElementById('noteForm').style.display = 'none';
+    document.getElementById('noteStatus').innerText = '';
+  }
+  
+  function saveNote() {
+    var noteId = document.getElementById('noteId').value;
+    var title = document.getElementById('noteTitle').value.trim();
+    var category = document.getElementById('noteCategory').value;
+    var content = document.getElementById('noteContent').value.trim();
+    
+    if (!title || !content) {
+      document.getElementById('noteStatus').innerText = 'Por favor, completa todos los campos.';
+      document.getElementById('noteStatus').style.color = 'red';
+      return;
+    }
+    
+    var noteData = {
+      id: noteId || null,
+      title: title,
+      category: category,
+      content: content
+    };
+    
+    document.getElementById('noteStatus').innerText = 'Guardando nota...';
+    document.getElementById('noteStatus').style.color = 'blue';
+    
+    google.script.run
+      .withSuccessHandler(function(result) {
+        if (result.success) {
+          document.getElementById('noteStatus').innerText = result.message;
+          document.getElementById('noteStatus').style.color = 'green';
+          
+          // Cerrar formulario después de 1 segundo
+          setTimeout(function() {
+            document.getElementById('noteForm').style.display = 'none';
+            // Recargar notas
+            loadNotes();
+          }, 1000);
+        } else {
+          document.getElementById('noteStatus').innerText = result.message;
+          document.getElementById('noteStatus').style.color = 'red';
+        }
+      })
+      .withFailureHandler(function(error) {
+        document.getElementById('noteStatus').innerText = 'Error: ' + error.message;
+        document.getElementById('noteStatus').style.color = 'red';
+      })
+      .saveNote(noteData);
+  }
+  
+  function filterNotesByCategory(category) {
+    currentCategory = category;
+    
+    // Actualizar UI para mostrar la categoría activa
+    document.querySelectorAll('#categoriesList li').forEach(function(li) {
+      li.classList.remove('active');
+    });
+    document.querySelector('#categoriesList li[data-category="' + category + '"]').classList.add('active');
+    
+    // Re-renderizar notas con el filtro aplicado
+    if (notes.length > 0) {
+      renderNotes(notes);
+    }
+  }
+  
+  function searchNotes() {
+    var searchText = document.getElementById('searchNotes').value.toLowerCase();
+    if (!searchText) {
+      renderNotes(notes); // Si no hay texto de búsqueda, mostrar todas las notas
+      return;
+    }
+    
+    // Filtrar notas por el texto de búsqueda
+    var filteredNotes = notes.filter(function(note) {
+      return note.title.toLowerCase().includes(searchText) || 
+             note.content.toLowerCase().includes(searchText);
+    });
+    
+    renderNotes(filteredNotes);
+  }
+  
+  // =========== CONTROL DOCUMENTAL ===========
+  
+  // Variables globales para Control Documental
+  var docControlData = {
+    buildings: [],
+    categories: [],
+    selectedBuilding: null,
+    nextBuildingId: 1,
+    nextDocumentId: 1
+  };
+  
+  // Arreglo de íconos disponibles para los edificios
+  const buildingIcons = {
+    building: 'fa-building',
+    home: 'fa-home',
+    industry: 'fa-industry',
+    warehouse: 'fa-warehouse',
+    hospital: 'fa-hospital',
+    school: 'fa-school',
+    store: 'fa-store',
+    hotel: 'fa-hotel'
+  };
+  
+  // Estructura inicial de categorías y tipos
+  const defaultCategories = [
+    {
+      name: 'Documentos de Edificio',
+      types: ['Escritura', 'Permiso de Construcción', 'Recepción Municipal', 'Planos']
+    },
+    {
+      name: 'Documentos de Seguridad',
+      types: ['Extintores', 'Red Húmeda', 'Plan de Emergencia', 'Certificado Eléctrico']
+    },
+    {
+      name: 'Documentos Laborales',
+      types: ['Contratos', 'Finiquitos', 'Certificados', 'Reglamento Interno']
+    },
+    {
+      name: 'Documentos Contables',
+      types: ['Facturas', 'Boletas', 'Libro Contable', 'Declaración de Impuestos']
+    }
+  ];
+  
+  /**
+   * Inicializa el módulo de Control Documental
+   */
+  function initDocumentControl() {
+    // Cargar datos del localStorage o usar valores por defecto
+    loadDocControlData();
+    
+    // Configurar listeners para las pestañas
+    setupDocControlTabs();
+    
+    // Configurar listeners para botones principales
+    setupDocControlButtons();
+    
+    // Renderizar interfaz inicial
+    renderBuildingSelector();
+    
+    // Configurar el botón para volver arriba
+    setupScrollTopButton();
+    
+    // Inicializar Flatpickr para campos de fecha
+    initFlatpickrDatepickers();
+    
+    // Cargar Font Awesome si no está ya cargado
+    loadFontAwesome();
+  }
+  
+  /**
+   * Carga los datos del Control Documental desde localStorage
+   */
+  function loadDocControlData() {
+    try {
+      // Intentar cargar datos del localStorage
+      const savedData = localStorage.getItem('docControlData');
+      
+      if (savedData) {
+        // Parsear los datos guardados
+        const parsedData = JSON.parse(savedData);
+        
+        // Recuperar datos
+        docControlData.buildings = parsedData.buildings || [];
+        docControlData.categories = parsedData.categories || JSON.parse(JSON.stringify(defaultCategories));
+        docControlData.nextBuildingId = parsedData.nextBuildingId || 1;
+        docControlData.nextDocumentId = parsedData.nextDocumentId || 1;
+        
+        // Reconstruir fechas (convertir strings a objetos Date)
+        docControlData.buildings.forEach(building => {
+          if (building.documents) {
+            building.documents.forEach(doc => {
+              if (doc.startDate) doc.startDate = new Date(doc.startDate);
+              if (doc.endDate) doc.endDate = new Date(doc.endDate);
+              if (doc.createdAt) doc.createdAt = new Date(doc.createdAt);
+              if (doc.updatedAt) doc.updatedAt = new Date(doc.updatedAt);
+            });
+          }
+        });
+      } else {
+        // Si no hay datos guardados, usar valores por defecto
+        docControlData.categories = JSON.parse(JSON.stringify(defaultCategories));
+        saveDocControlData();
+      }
+    } catch (error) {
+      console.error("Error al cargar datos de Control Documental:", error);
+      // Si hay un error, usar valores por defecto
+      docControlData.categories = JSON.parse(JSON.stringify(defaultCategories));
+      saveDocControlData();
+    }
+  }
+  
+  /**
+   * Guarda los datos del Control Documental en localStorage
+   */
+  function saveDocControlData() {
+    try {
+      localStorage.setItem('docControlData', JSON.stringify(docControlData));
+    } catch (error) {
+      console.error("Error al guardar datos de Control Documental:", error);
+      showDocControlToast("Error al guardar datos: " + error.message, "error");
+    }
+  }
+  
+  /**
+   * Configura los listeners para las pestañas
+   */
+  function setupDocControlTabs() {
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', function() {
+        // Remover clase active de todos los botones y paneles
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        
+        // Agregar clase active al botón y panel actual
+        this.classList.add('active');
+        const tabId = this.getAttribute('data-tab');
+        document.getElementById(tabId + '-tab').classList.add('active');
+        
+        // Si es la pestaña de categorías, renderizar el acordeón
+        if (tabId === 'categories') {
+          renderCategoriesAccordion();
+        } else if (tabId === 'pending') {
+          renderPendingDocuments();
+        } else if (tabId === 'settings') {
+          loadBuildingSettings();
+        }
+      });
+    });
+  }
+  
+  /**
+   * Configura los listeners para botones principales
+   */
+  function setupDocControlButtons() {
+    // Botón para agregar edificio
+    document.getElementById('addBuildingBtn').addEventListener('click', showAddBuildingForm);
+    
+    // Botón para volver a la lista de edificios
+    document.getElementById('backToBuildingsBtn').addEventListener('click', function() {
+      document.getElementById('buildingPanel').style.display = 'none';
+      document.getElementById('buildingSelector').style.display = 'block';
+      docControlData.selectedBuilding = null;
+    });
+    
+    // Botón para agregar documento
+    document.getElementById('addDocumentBtn').addEventListener('click', function() {
+      showDocumentForm();
+    });
+    
+    // Botón para agregar categoría
+    document.getElementById('addCategoryBtn').addEventListener('click', function() {
+      document.getElementById('categoryForm').style.display = 'block';
+    });
+    
+    // Botón para importar datos
+    document.getElementById('importFile').addEventListener('change', handleFileImport);
+  }
+  
+  /**
+   * Renderiza el selector de edificios
+   */
+  function renderBuildingSelector() {
+    const buildingCardsContainer = document.getElementById('buildingCards');
+    buildingCardsContainer.innerHTML = '';
+    
+    if (docControlData.buildings.length === 0) {
+      buildingCardsContainer.innerHTML = '<div class="no-data-message">No hay edificios registrados. Agregue uno nuevo para comenzar.</div>';
+      return;
+    }
+    
+    docControlData.buildings.forEach(building => {
+      // Calcular porcentaje de completitud
+      const completionPercentage = calculateCompletionPercentage(building);
+      
+      // Crear tarjeta de edificio
+      const buildingCard = document.createElement('div');
+      buildingCard.className = 'building-card fade-in-up';
+      buildingCard.innerHTML = `
+        <div class="building-icon">
+          <i class="fas ${buildingIcons[building.icon] || 'fa-building'}"></i>
+        </div>
+        <div class="building-name">${building.name}</div>
+        <div class="building-address">${building.address || 'Sin dirección'}</div>
+        <div class="building-progress">
+          <div class="progress-bar" style="width: ${completionPercentage}%"></div>
+        </div>
+        <div class="building-completion">${completionPercentage}% completado</div>
+      `;
+      
+      // Agregar listener para seleccionar edificio
+      buildingCard.addEventListener('click', function() {
+        selectBuilding(building.id);
+      });
+      
+      buildingCardsContainer.appendChild(buildingCard);
+    });
+  }
+  
+  /**
+   * Muestra el formulario para agregar un nuevo edificio
+   */
+  function showAddBuildingForm() {
+    // Crear un nuevo edificio temporal
+    const newBuilding = {
+      id: docControlData.nextBuildingId,
+      name: 'Nuevo Edificio',
+      address: '',
+      icon: 'building',
+      documents: []
+    };
+    
+    // Agregar a la lista de edificios
+    docControlData.buildings.push(newBuilding);
+    docControlData.nextBuildingId++;
+    
+    // Guardar datos
+    saveDocControlData();
+    
+    // Seleccionar el nuevo edificio y abrir la pestaña de configuración
+    selectBuilding(newBuilding.id);
+    
+    // Cambiar a la pestaña de configuración
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelector('.tab-btn[data-tab="settings"]').classList.add('active');
+    document.getElementById('settings-tab').classList.add('active');
+    
+    // Cargar configuración del edificio
+    loadBuildingSettings();
+    
+    // Mostrar notificación
+    showDocControlToast("Edificio creado. Complete la configuración.");
+  }
+  
+  /**
+   * Selecciona un edificio y muestra su panel
+   * @param {number} buildingId - ID del edificio a seleccionar
+   */
+  function selectBuilding(buildingId) {
+    const building = docControlData.buildings.find(b => b.id === buildingId);
+    
+    if (!building) {
+      showDocControlToast("Edificio no encontrado", "error");
+      return;
+    }
+    
+    // Guardar edificio seleccionado
+    docControlData.selectedBuilding = building;
+    
+    // Actualizar título
+    document.getElementById('selectedBuildingTitle').textContent = building.name;
+    
+    // Ocultar selector y mostrar panel
+    document.getElementById('buildingSelector').style.display = 'none';
+    document.getElementById('buildingPanel').style.display = 'block';
+    
+    // Cargar documentos
+    renderDocumentsTable();
+    
+    // Inicializar pestaña activa (documentos por defecto)
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelector('.tab-btn[data-tab="documents"]').classList.add('active');
+    document.getElementById('documents-tab').classList.add('active');
+  }
+  
+  /**
+   * Renderiza la tabla de documentos del edificio seleccionado
+   */
+  function renderDocumentsTable() {
+    const tableBody = document.querySelector('#documentsTable tbody');
+    const noDocumentsMessage = document.getElementById('noDocumentsMessage');
+    
+    tableBody.innerHTML = '';
+    
+    if (!docControlData.selectedBuilding || !docControlData.selectedBuilding.documents || docControlData.selectedBuilding.documents.length === 0) {
+      tableBody.innerHTML = '';
+      noDocumentsMessage.style.display = 'block';
+      return;
+    }
+    
+    noDocumentsMessage.style.display = 'none';
+    
+    // Ordenar documentos por fecha de vencimiento (más próximos primero)
+    const sortedDocuments = [...docControlData.selectedBuilding.documents].sort((a, b) => {
+      // Documentos sin fecha de vencimiento al final
+      if (!a.endDate) return 1;
+      if (!b.endDate) return -1;
+      return new Date(a.endDate) - new Date(b.endDate);
+    });
+    
+    // Renderizar cada documento
+    sortedDocuments.forEach(doc => {
+      renderDocumentRow(doc, tableBody);
+    });
+  }
+  
+  /**
+   * Renderiza una fila de la tabla de documentos
+   * @param {Object} doc - Documento a renderizar
+   * @param {HTMLElement} tableBody - Elemento tbody donde insertar la fila
+   */
+  function renderDocumentRow(doc, tableBody) {
+    // Calcular días hasta vencimiento y obtener estado
+    const expiryStatus = getDaysUntilExpiry(doc.endDate);
+    
+    // Crear fila de documento
+    const row = document.createElement('tr');
+    
+    // Crear celdas con atributos data-label para responsive
+    row.innerHTML = `
+      <td data-label="Categoría">${doc.category}</td>
+      <td data-label="Tipo">${doc.type}</td>
+      <td data-label="Descripción">${doc.description}</td>
+      <td data-label="F. Inicio">${formatDate(doc.startDate)}</td>
+      <td data-label="F. Vencimiento">${formatDate(doc.endDate)}</td>
+      <td data-label="Estado">
+        <span class="days-badge ${expiryStatus.status}">${expiryStatus.message}</span>
+      </td>
+      <td data-label="Acciones">
+        <div class="action-buttons">
+          ${doc.fileData ? 
+            `<button class="action-btn view-btn" title="Ver archivo"><i class="fas fa-file-alt"></i></button>` : 
+            ''}
+          <button class="action-btn edit-btn" title="Editar"><i class="fas fa-edit"></i></button>
+          <button class="action-btn delete-btn" title="Eliminar"><i class="fas fa-trash"></i></button>
+        </div>
+      </td>
+    `;
+    
+    // Agregar listeners a los botones de acción
+    if (doc.fileData) {
+      row.querySelector('.view-btn').addEventListener('click', function() {
+        viewDocumentFile(doc);
+      });
+    }
+    
+    row.querySelector('.edit-btn').addEventListener('click', function() {
+      showDocumentForm(doc);
+    });
+    
+    row.querySelector('.delete-btn').addEventListener('click', function() {
+      deleteDocument(doc);
+    });
+    
+    tableBody.appendChild(row);
+  }
+  
+  /**
+   * Muestra el formulario para agregar o editar un documento
+   * @param {Object} [doc] - Documento a editar (opcional)
+   */
+  function showDocumentForm(doc = null) {
+    const form = document.getElementById('documentForm');
+    const formTitle = document.getElementById('documentFormTitle');
+    const documentId = document.getElementById('documentId');
+    const documentCategory = document.getElementById('documentCategory');
+    const documentType = document.getElementById('documentType');
+    const documentCustomType = document.getElementById('documentCustomType');
+    const documentDescription = document.getElementById('documentDescription');
+    const documentStartDate = document.getElementById('documentStartDate');
+    const documentEndDate = document.getElementById('documentEndDate');
+    const currentFileInfo = document.getElementById('currentFileInfo');
+    
+    // Llenar el selector de categorías
+    documentCategory.innerHTML = '<option value="">Seleccione categoría...</option>';
+    docControlData.categories.forEach(category => {
+      const option = document.createElement('option');
+      option.value = category.name;
+      option.textContent = category.name;
+      documentCategory.appendChild(option);
+    });
+    
+    // Limpiar el selector de tipos
+    documentType.innerHTML = '<option value="">Seleccione tipo...</option>';
+    
+    // Si es edición, llenar los campos con los datos del documento
+    if (doc) {
+      formTitle.textContent = 'Editar Documento';
+      documentId.value = doc.id;
+      documentCategory.value = doc.category;
+      updateDocumentTypes(); // Actualizar tipos según la categoría seleccionada
+      
+      // Si es un tipo personalizado, mostrar el campo de tipo personalizado
+      if (doc.custom) {
+        documentType.value = 'otro';
+        documentCustomType.value = doc.type;
+        document.getElementById('customTypeContainer').style.display = 'block';
+      } else {
+        documentType.value = doc.type;
+      }
+      
+      documentDescription.value = doc.description;
+      documentStartDate.value = formatDateForInput(doc.startDate);
+      documentEndDate.value = formatDateForInput(doc.endDate);
+      
+      // Mostrar información del archivo actual si existe
+      if (doc.fileData) {
+        currentFileInfo.innerHTML = `
+          <div>Archivo actual: ${doc.fileName} 
+            <button type="button" class="action-btn view-btn" onclick="viewDocumentFile(${doc.id})">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
+        `;
+      } else {
+        currentFileInfo.innerHTML = 'No hay archivo adjunto';
+      }
+    } else {
+      // Si es nuevo documento, limpiar el formulario
+      formTitle.textContent = 'Agregar Documento';
+      documentId.value = '';
+      documentCategory.value = '';
+      documentType.innerHTML = '<option value="">Seleccione tipo...</option>';
+      documentCustomType.value = '';
+      document.getElementById('customTypeContainer').style.display = 'none';
+      documentDescription.value = '';
+      documentStartDate.value = formatDateForInput(new Date());
+      documentEndDate.value = '';
+      currentFileInfo.innerHTML = '';
+    }
+    
+    // Inicializar Flatpickr para las fechas
+    initFlatpickrDatepickers();
+    
+    // Mostrar el formulario
+    form.style.display = 'block';
+    
+    // Hacer scroll al formulario
+    form.scrollIntoView({ behavior: 'smooth' });
+  }
+  
+  /**
+   * Actualiza los tipos de documentos según la categoría seleccionada
+   */
+  function updateDocumentTypes() {
+    const documentCategory = document.getElementById('documentCategory');
+    const documentType = document.getElementById('documentType');
+    const selectedCategory = documentCategory.value;
+    
+    // Limpiar el selector de tipos
+    documentType.innerHTML = '<option value="">Seleccione tipo...</option>';
+    
+    // Si no hay categoría seleccionada, salir
+    if (!selectedCategory) return;
+    
+    // Encontrar la categoría en los datos
+    const category = docControlData.categories.find(c => c.name === selectedCategory);
+    
+    // Si no se encuentra la categoría, salir
+    if (!category) return;
+    
+    // Llenar el selector con los tipos de la categoría
+    category.types.forEach(type => {
+      const option = document.createElement('option');
+      option.value = type;
+      option.textContent = type;
+      documentType.appendChild(option);
+    });
+    
+    // Agregar opción "Otro"
+    const otherOption = document.createElement('option');
+    otherOption.value = 'otro';
+    otherOption.textContent = 'Otro (especificar)';
+    documentType.appendChild(otherOption);
+    
+    // Agregar listener para mostrar/ocultar campo de tipo personalizado
+    documentType.addEventListener('change', function() {
+      if (this.value === 'otro') {
+        document.getElementById('customTypeContainer').style.display = 'block';
+      } else {
+        document.getElementById('customTypeContainer').style.display = 'none';
+      }
+    });
+  }
+  
+  /**
+   * Guarda un documento (nuevo o existente)
+   */
+  function saveDocument() {
+    // Obtener datos del formulario
+    const documentId = document.getElementById('documentId').value;
+    const category = document.getElementById('documentCategory').value;
+    const type = document.getElementById('documentType').value;
+    const customType = document.getElementById('documentCustomType').value;
+    const description = document.getElementById('documentDescription').value;
+    const startDate = document.getElementById('documentStartDate').value;
+    const endDate = document.getElementById('documentEndDate').value;
+    const fileInput = document.getElementById('documentFile');
+    
+    // Validar campos obligatorios
+    if (!category || !description || !startDate || !endDate) {
+      showDocControlToast("Por favor complete todos los campos obligatorios", "error");
+      return;
+    }
+    
+    // Validar tipo
+    if (type === 'otro' && !customType) {
+      showDocControlToast("Por favor especifique el tipo de documento", "error");
+      return;
+    }
+    
+    // Validar fechas
+    if (new Date(endDate) < new Date(startDate)) {
+      showDocControlToast("La fecha de vencimiento debe ser posterior a la fecha de inicio", "error");
+      return;
+    }
+    
+    // Preparar objeto de documento
+    const documentData = {
+      category: category,
+      type: type === 'otro' ? customType : type,
+      custom: type === 'otro',
+      description: description,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      updatedAt: new Date()
+    };
+    
+    // Si hay archivo seleccionado, leerlo
+    if (fileInput.files.length > 0) {
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      
+      reader.onload = function(e) {
+        documentData.fileData = e.target.result;
+        documentData.fileName = file.name;
+        documentData.fileType = file.type;
+        
+        // Continuar con el guardado después de leer el archivo
+        completeDocumentSave(documentId, documentData);
+      };
+      
+      reader.onerror = function() {
+        showDocControlToast("Error al leer el archivo", "error");
+      };
+      
+      reader.readAsDataURL(file);
+    } else {
+      // Si no hay nuevo archivo, conservar el actual si existe
+      if (documentId) {
+        const existingDoc = docControlData.selectedBuilding.documents.find(d => d.id == documentId);
+        if (existingDoc && existingDoc.fileData) {
+          documentData.fileData = existingDoc.fileData;
+          documentData.fileName = existingDoc.fileName;
+          documentData.fileType = existingDoc.fileType;
+        }
+      }
+      
+      // Continuar con el guardado sin archivo
+      completeDocumentSave(documentId, documentData);
+    }
+  }
+  
+  /**
+   * Completa el proceso de guardado de un documento
+   * @param {string} documentId - ID del documento (vacío si es nuevo)
+   * @param {Object} documentData - Datos del documento
+   */
+  function completeDocumentSave(documentId, documentData) {
+    // Si es un documento existente
+    if (documentId) {
+      // Encontrar el índice del documento
+      const docIndex = docControlData.selectedBuilding.documents.findIndex(d => d.id == documentId);
+      
+      if (docIndex !== -1) {
+        // Actualizar documento existente manteniendo su ID y fecha de creación
+        documentData.id = parseInt(documentId);
+        documentData.createdAt = docControlData.selectedBuilding.documents[docIndex].createdAt;
+        
+        // Reemplazar el documento
+        docControlData.selectedBuilding.documents[docIndex] = documentData;
+      }
+    } else {
+      // Es un documento nuevo
+      documentData.id = docControlData.nextDocumentId++;
+      documentData.createdAt = new Date();
+      
+      // Agregar a la lista de documentos
+      if (!docControlData.selectedBuilding.documents) {
+        docControlData.selectedBuilding.documents = [];
+      }
+      
+      docControlData.selectedBuilding.documents.push(documentData);
+    }
+    
+    // Guardar datos
+    saveDocControlData();
+    
+    // Renderizar documentos
+    renderDocumentsTable();
+    
+    // Ocultar formulario
+    document.getElementById('documentForm').style.display = 'none';
+    
+    // Limpiar selector de archivo
+    document.getElementById('documentFile').value = '';
+    
+    // Mostrar notificación
+    showDocControlToast(documentId ? "Documento actualizado correctamente" : "Documento agregado correctamente");
+  }
+  
+  /**
+   * Cancela el formulario de documento
+   */
+  function cancelDocumentForm() {
+    document.getElementById('documentForm').style.display = 'none';
+    document.getElementById('documentFile').value = '';
+  }
+  
+  /**
+   * Visualiza un archivo de documento
+   * @param {Object|number} doc - Documento o ID del documento a visualizar
+   */
+  function viewDocumentFile(doc) {
+    // Si es un ID, buscar el documento
+    if (typeof doc === 'number') {
+      doc = docControlData.selectedBuilding.documents.find(d => d.id === doc);
+    }
+    
+    // Si no hay documento o no tiene archivo, salir
+    if (!doc || !doc.fileData) {
+      showDocControlToast("No hay archivo para visualizar", "error");
+      return;
+    }
+    
+    // Crear un enlace temporal para abrir el archivo
+    const link = document.createElement('a');
+    link.href = doc.fileData;
+    link.download = doc.fileName;
+    link.target = '_blank';
+    
+    // Si es un tipo de archivo que se puede mostrar en el navegador, abrir en nueva pestaña
+    if (doc.fileType.startsWith('image/') || doc.fileType === 'application/pdf' || doc.fileType.startsWith('text/')) {
+      window.open(doc.fileData, '_blank');
+    } else {
+      // Si no, ofrecer descarga
+      link.click();
+    }
+  }
+  
+  /**
+   * Elimina un documento
+   * @param {Object} doc - Documento a eliminar
+   */
+  function deleteDocument(doc) {
+    if (!confirm(`¿Está seguro de eliminar el documento "${doc.description}"?`)) {
+      return;
+    }
+    
+    // Filtrar el documento de la lista
+    docControlData.selectedBuilding.documents = docControlData.selectedBuilding.documents.filter(d => d.id !== doc.id);
+    
+    // Guardar datos
+    saveDocControlData();
+    
+    // Renderizar documentos
+    renderDocumentsTable();
+    
+    // Mostrar notificación
+    showDocControlToast("Documento eliminado correctamente");
+  }
+  
+  /**
+   * Renderiza el acordeón de categorías y tipos
+   */
+  function renderCategoriesAccordion() {
+    const accordionContainer = document.getElementById('categoriesAccordion');
+    accordionContainer.innerHTML = '';
+    
+    docControlData.categories.forEach((category, index) => {
+      // Crear ítem de acordeón
+      const accordionItem = document.createElement('div');
+      accordionItem.className = 'accordion-item';
+      
+      // Crear encabezado
+      const header = document.createElement('div');
+      header.className = 'accordion-header';
+      header.innerHTML = `
+        <h4>${category.name}</h4>
+        <div class="accordion-actions">
+          <i class="fas fa-chevron-down"></i>
+        </div>
+      `;
+      
+      // Crear cuerpo del acordeón
+      const body = document.createElement('div');
+      body.className = 'accordion-body';
+      body.id = `category-${index}`;
+      
+      // Crear lista de tipos
+      let typesList = '<ul class="type-list">';
+      category.types.forEach(type => {
+        typesList += `
+          <li class="type-item">
+            <span>${type}</span>
+            <button class="action-btn delete-btn" data-type="${type}">
+              <i class="fas fa-times"></i>
+            </button>
+          </li>
+        `;
+      });
+      typesList += '</ul>';
+      
+      // Agregar formulario para agregar tipos
+      typesList += `
+        <div class="add-type-form">
+          <input type="text" placeholder="Nuevo tipo de documento" id="newType-${index}">
+          <button class="primary-button" data-category="${index}">Agregar</button>
+        </div>
+        <button class="delete-button" data-delete-category="${index}">
+          <i class="fas fa-trash"></i> Eliminar Categoría
+        </button>
+      `;
+      
+      body.innerHTML = typesList;
+      
+      // Agregar elementos al acordeón
+      accordionItem.appendChild(header);
+      accordionItem.appendChild(body);
+      accordionContainer.appendChild(accordionItem);
+      
+      // Agregar listener para expandir/colapsar
+      header.addEventListener('click', function() {
+        body.classList.toggle('expanded');
+        header.querySelector('.fa-chevron-down').classList.toggle('fa-chevron-up');
+      });
+      
+      // Agregar listeners para eliminar tipos
+      body.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          const type = this.getAttribute('data-type');
+          deleteDocumentType(index, type);
+        });
+      });
+      
+      // Agregar listener para agregar tipo
+      body.querySelector('.add-type-form button').addEventListener('click', function() {
+        const categoryIndex = parseInt(this.getAttribute('data-category'));
+        const newTypeInput = document.getElementById(`newType-${categoryIndex}`);
+        const newType = newTypeInput.value.trim();
+        
+        if (newType) {
+          addDocumentType(categoryIndex, newType);
+          newTypeInput.value = '';
+        }
+      });
+      
+      // Agregar listener para eliminar categoría
+      body.querySelector('[data-delete-category]').addEventListener('click', function(e) {
+        e.stopPropagation();
+        const categoryIndex = parseInt(this.getAttribute('data-delete-category'));
+        deleteCategory(categoryIndex);
+      });
+    });
+  }
+  
+  /**
+   * Muestra el formulario para agregar categoría
+   */
+  function showCategoryForm() {
+    document.getElementById('categoryForm').style.display = 'block';
+    document.getElementById('categoryName').focus();
+  }
+  
+  /**
+   * Guarda una nueva categoría
+   */
+  function saveCategory() {
+    const categoryName = document.getElementById('categoryName').value.trim();
+    
+    if (!categoryName) {
+      showDocControlToast("Por favor ingrese un nombre para la categoría", "error");
+      return;
+    }
+    
+    // Verificar si ya existe la categoría
+    if (docControlData.categories.some(c => c.name === categoryName)) {
+      showDocControlToast("Ya existe una categoría con ese nombre", "error");
+      return;
+    }
+    
+    // Agregar nueva categoría
+    docControlData.categories.push({
+      name: categoryName,
+      types: []
+    });
+    
+    // Guardar datos
+    saveDocControlData();
+    
+    // Renderizar acordeón
+    renderCategoriesAccordion();
+    
+    // Limpiar y ocultar formulario
+    document.getElementById('categoryName').value = '';
+    document.getElementById('categoryForm').style.display = 'none';
+    
+    // Mostrar notificación
+    showDocControlToast("Categoría agregada correctamente");
+  }
+  
+  /**
+   * Cancela el formulario de categoría
+   */
+  function cancelCategoryForm() {
+    document.getElementById('categoryName').value = '';
+    document.getElementById('categoryForm').style.display = 'none';
+  }
+  
+  /**
+   * Agrega un tipo de documento a una categoría
+   * @param {number} categoryIndex - Índice de la categoría
+   * @param {string} type - Nombre del tipo
+   */
+  function addDocumentType(categoryIndex, type) {
+    // Verificar si ya existe el tipo
+    if (docControlData.categories[categoryIndex].types.includes(type)) {
+      showDocControlToast("Ya existe este tipo de documento en esta categoría", "error");
+      return;
+    }
+    
+    // Agregar tipo
+    docControlData.categories[categoryIndex].types.push(type);
+    
+    // Guardar datos
+    saveDocControlData();
+    
+    // Renderizar acordeón
+    renderCategoriesAccordion();
+    
+    // Expandir la categoría actual
+    const accordionBody = document.getElementById(`category-${categoryIndex}`);
+    if (accordionBody) {
+      accordionBody.classList.add('expanded');
+      accordionBody.previousElementSibling.querySelector('.fa-chevron-down').classList.add('fa-chevron-up');
+    }
+    
+    // Mostrar notificación
+    showDocControlToast("Tipo de documento agregado correctamente");
+  }
+  
+  /**
+   * Elimina un tipo de documento de una categoría
+   * @param {number} categoryIndex - Índice de la categoría
+   * @param {string} type - Nombre del tipo a eliminar
+   */
+  function deleteDocumentType(categoryIndex, type) {
+    if (!confirm(`¿Está seguro de eliminar el tipo "${type}"?`)) {
+      return;
+    }
+    
+    // Filtrar el tipo de la lista
+    docControlData.categories[categoryIndex].types = docControlData.categories[categoryIndex].types.filter(t => t !== type);
+    
+    // Guardar datos
+    saveDocControlData();
+    
+    // Renderizar acordeón
+    renderCategoriesAccordion();
+    
+    // Expandir la categoría actual
+    const accordionBody = document.getElementById(`category-${categoryIndex}`);
+    if (accordionBody) {
+      accordionBody.classList.add('expanded');
+      accordionBody.previousElementSibling.querySelector('.fa-chevron-down').classList.add('fa-chevron-up');
+    }
+    
+    // Mostrar notificación
+    showDocControlToast("Tipo de documento eliminado correctamente");
+  }
+  
+  /**
+   * Elimina una categoría
+   * @param {number} categoryIndex - Índice de la categoría a eliminar
+   */
+  function deleteCategory(categoryIndex) {
+    const categoryName = docControlData.categories[categoryIndex].name;
+    
+    if (!confirm(`¿Está seguro de eliminar la categoría "${categoryName}"?`)) {
+      return;
+    }
+    
+    // Eliminar categoría
+    docControlData.categories.splice(categoryIndex, 1);
+    
+    // Guardar datos
+    saveDocControlData();
+    
+    // Renderizar acordeón
+    renderCategoriesAccordion();
+    
+    // Mostrar notificación
+    showDocControlToast("Categoría eliminada correctamente");
+  }
+  
+  /**
+   * Renderiza la lista de documentos pendientes
+   */
+  function renderPendingDocuments() {
+    const pendingContainer = document.getElementById('pendingDocuments');
+    const noPendingMessage = document.getElementById('noPendingMessage');
+    
+    pendingContainer.innerHTML = '';
+    
+    // Obtener lista de documentos pendientes
+    const pendingDocs = getPendingDocuments();
+    
+    if (pendingDocs.length === 0) {
+      noPendingMessage.style.display = 'block';
+      return;
+    }
+    
+    noPendingMessage.style.display = 'none';
+    
+    // Renderizar cada categoría con sus documentos pendientes
+    pendingDocs.forEach(category => {
+      const categoryElement = document.createElement('div');
+      categoryElement.className = 'pending-category fade-in-up';
+      
+      let itemsHtml = '';
+      category.items.forEach(item => {
+        itemsHtml += `<div class="pending-item" onclick="addPendingDocument('${category.name}', '${item}')">${item}</div>`;
+      });
+      
+      categoryElement.innerHTML = `
+        <div class="pending-category-title">${category.name}</div>
+        <div class="pending-items">${itemsHtml}</div>
+      `;
+      
+      pendingContainer.appendChild(categoryElement);
+    });
+  }
+  
+  /**
+   * Inicia el proceso de agregar un documento pendiente
+   * @param {string} category - Nombre de la categoría
+   * @param {string} type - Nombre del tipo
+   */
+  function addPendingDocument(category, type) {
+    // Mostrar el formulario de documento
+    showDocumentForm();
+    
+    // Seleccionar la categoría y tipo
+    document.getElementById('documentCategory').value = category;
+    updateDocumentTypes();
+    document.getElementById('documentType').value = type;
+    
+    // Hacer foco en el campo de descripción
+    document.getElementById('documentDescription').focus();
+  }
+  
+  /**
+   * Carga la configuración del edificio seleccionado
+   */
+  function loadBuildingSettings() {
+    if (!docControlData.selectedBuilding) return;
+    
+    document.getElementById('buildingName').value = docControlData.selectedBuilding.name;
+    document.getElementById('buildingAddress').value = docControlData.selectedBuilding.address || '';
+    document.getElementById('buildingIcon').value = docControlData.selectedBuilding.icon || 'building';
+  }
+  
+  /**
+   * Guarda la configuración del edificio
+   */
+  function saveBuildingSettings() {
+    if (!docControlData.selectedBuilding) return;
+    
+    const name = document.getElementById('buildingName').value.trim();
+    const address = document.getElementById('buildingAddress').value.trim();
+    const icon = document.getElementById('buildingIcon').value;
+    
+    if (!name) {
+      showDocControlToast("Por favor ingrese un nombre para el edificio", "error");
+      return;
+    }
+    
+    // Actualizar datos
+    docControlData.selectedBuilding.name = name;
+    docControlData.selectedBuilding.address = address;
+    docControlData.selectedBuilding.icon = icon;
+    
+    // Actualizar título
+    document.getElementById('selectedBuildingTitle').textContent = name;
+    
+    // Guardar datos
+    saveDocControlData();
+    
+    // Mostrar notificación
+    showDocControlToast("Configuración guardada correctamente");
+  }
+  
+  /**
+   * Elimina el edificio seleccionado
+   */
+  function deleteBuilding() {
+    if (!docControlData.selectedBuilding) return;
+    
+    if (!confirm(`¿Está seguro de eliminar el edificio "${docControlData.selectedBuilding.name}"?`)) {
+      return;
+    }
+    
+    // Eliminar edificio
+    docControlData.buildings = docControlData.buildings.filter(b => b.id !== docControlData.selectedBuilding.id);
+    
+    // Guardar datos
+    saveDocControlData();
+    
+    // Volver a la lista de edificios
+    document.getElementById('buildingPanel').style.display = 'none';
+    document.getElementById('buildingSelector').style.display = 'block';
+    
+    // Renderizar selector de edificios
+    renderBuildingSelector();
+    
+    // Limpiar edificio seleccionado
+    docControlData.selectedBuilding = null;
+    
+    // Mostrar notificación
+    showDocControlToast("Edificio eliminado correctamente");
+  }
+  
+  /**
+   * Exporta los datos del edificio seleccionado
+   */
+  function exportBuildingData() {
+    if (!docControlData.selectedBuilding) return;
+    
+    try {
+      // Preparar datos para exportar
+      const exportData = {
+        building: docControlData.selectedBuilding,
+        exportDate: new Date().toISOString(),
+        version: "1.0"
+      };
+      
+      // Convertir a JSON
+      const jsonData = JSON.stringify(exportData, null, 2);
+      
+      // Crear blob y enlace de descarga
+      const blob = new Blob([jsonData], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const filename = `${docControlData.selectedBuilding.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      
+      // Mostrar notificación
+      showDocControlToast("Datos exportados correctamente");
+    } catch (error) {
+      console.error("Error al exportar datos:", error);
+      showDocControlToast("Error al exportar datos: " + error.message, "error");
+    }
+  }
+  
+  /**
+   * Maneja la selección de archivo para importación
+   * @param {Event} event - Evento de cambio en el input de archivo
+   */
+  function handleFileImport(event) {
+    const file = event.target.files[0];
+    
+    if (!file) return;
+    
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+      try {
+        const importData = JSON.parse(e.target.result);
+        
+        // Validar datos
+        if (!importData.building || !importData.building.id) {
+          throw new Error("El archivo no contiene datos válidos de edificio");
+        }
+        
+        // Mostrar vista previa
+        showImportPreview(importData);
+      } catch (error) {
+        console.error("Error al leer archivo de importación:", error);
+        showDocControlToast("Error al leer archivo: " + error.message, "error");
+      }
+    };
+    
+    reader.onerror = function() {
+      showDocControlToast("Error al leer el archivo", "error");
+    };
+    
+    reader.readAsText(file);
+  }
+  
+  /**
+   * Muestra la vista previa de importación
+   * @param {Object} importData - Datos a importar
+   */
+  function showImportPreview(importData) {
+    const modal = document.getElementById('importModal');
+    const preview = document.getElementById('importPreview');
+    
+    // Preparar resumen de datos
+    const building = importData.building;
+    
+    preview.innerHTML = `
+      <p><strong>Nombre:</strong> ${building.name}</p>
+      <p><strong>Dirección:</strong> ${building.address || 'No especificada'}</p>
+      <p><strong>Documentos:</strong> ${building.documents ? building.documents.length : 0}</p>
+      <p><strong>Fecha de exportación:</strong> ${new Date(importData.exportDate).toLocaleString()}</p>
+    `;
+    
+    // Guardar datos en el modal para usarlos en la confirmación
+    modal.dataset.importData = JSON.stringify(importData);
+    
+    // Mostrar modal
+    modal.style.display = 'flex';
+  }
+  
+  /**
+   * Cierra el modal de importación
+   */
+  function closeImportModal() {
+    document.getElementById('importModal').style.display = 'none';
+    document.getElementById('importFile').value = '';
+  }
+  
+  /**
+   * Confirma la importación de datos
+   */
+  function confirmImport() {
+    const modal = document.getElementById('importModal');
+    
+    try {
+      // Obtener datos del modal
+      const importData = JSON.parse(modal.dataset.importData);
+      const building = importData.building;
+      
+      // Verificar si ya existe un edificio con este ID
+      const existingIndex = docControlData.buildings.findIndex(b => b.id === building.id);
+      
+      if (existingIndex !== -1) {
+        // Reemplazar edificio existente
+        docControlData.buildings[existingIndex] = building;
+      } else {
+        // Agregar nuevo edificio
+        docControlData.buildings.push(building);
+        
+        // Actualizar nextBuildingId si es necesario
+        if (building.id >= docControlData.nextBuildingId) {
+          docControlData.nextBuildingId = building.id + 1;
+        }
+      }
+      
+      // Actualizar nextDocumentId si es necesario
+      if (building.documents && building.documents.length > 0) {
+        const maxDocId = Math.max(...building.documents.map(d => d.id));
+        if (maxDocId >= docControlData.nextDocumentId) {
+          docControlData.nextDocumentId = maxDocId + 1;
+        }
+      }
+      
+      // Guardar datos
+      saveDocControlData();
+      
+      // Cerrar modal
+      closeImportModal();
+      
+      // Renderizar selector de edificios
+      renderBuildingSelector();
+      
+      // Seleccionar el edificio importado
+      selectBuilding(building.id);
+      
+      // Mostrar notificación
+      showDocControlToast("Datos importados correctamente");
+    } catch (error) {
+      console.error("Error al importar datos:", error);
+      showDocControlToast("Error al importar datos: " + error.message, "error");
+    }
+  }
+  
+  /**
+   * Muestra un mensaje toast
+   * @param {string} message - Mensaje a mostrar
+   * @param {string} [type='success'] - Tipo de mensaje (success, error)
+   */
+  function showDocControlToast(message, type = 'success') {
+    const toast = document.getElementById('docControlToast');
+    const toastMessage = document.getElementById('toastMessage');
+    
+    // Establecer mensaje y tipo
+    toastMessage.textContent = message;
+    
+    // Establecer ícono según tipo
+    const icon = toast.querySelector('i');
+    if (type === 'success') {
+      icon.className = 'fas fa-check-circle';
+      toast.style.backgroundColor = '#4CAF50';
+    } else {
+      icon.className = 'fas fa-exclamation-circle';
+      toast.style.backgroundColor = '#F44336';
+    }
+    
+    // Mostrar toast
+    toast.style.display = 'flex';
+    toast.classList.add('show');
+    
+    // Ocultar después de 3 segundos
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 300);
+    }, 3000);
+  }
+  
+  /**
+   * Configura el botón para volver arriba
+   */
+  function setupScrollTopButton() {
+    const scrollTopBtn = document.getElementById('scrollTopBtn');
+    
+    // Mostrar/ocultar botón según posición de scroll
+    window.addEventListener('scroll', function() {
+      if (document.body.scrollTop > 300 || document.documentElement.scrollTop > 300) {
+        scrollTopBtn.style.display = 'flex';
+      } else {
+        scrollTopBtn.style.display = 'none';
+      }
+    });
+    
+    // Hacer scroll al inicio al hacer clic
+    scrollTopBtn.addEventListener('click', function() {
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    });
+  }
+  
+  /**
+   * Inicializa Flatpickr para los campos de fecha
+   */
+  function initFlatpickrDatepickers() {
+    // Destruir instancias existentes si las hay
+    if (window.startDatePicker) window.startDatePicker.destroy();
+    if (window.endDatePicker) window.endDatePicker.destroy();
+    
+    // Inicializar datepicker para fecha de inicio
+    window.startDatePicker = flatpickr('#documentStartDate', {
+      dateFormat: 'Y-m-d',
+      locale: 'es',
+      onChange: function(selectedDates) {
+        // Actualizar fecha mínima del datepicker de fin
+        if (selectedDates.length > 0) {
+          window.endDatePicker.set('minDate', selectedDates[0]);
+        }
+      }
+    });
+    
+    // Inicializar datepicker para fecha de fin
+    window.endDatePicker = flatpickr('#documentEndDate', {
+      dateFormat: 'Y-m-d',
+      locale: 'es',
+      minDate: document.getElementById('documentStartDate').value || 'today'
+    });
+  }
+  
+  /**
+   * Carga Font Awesome si no está ya cargado
+   */
+  function loadFontAwesome() {
+    if (document.querySelector('link[href*="fontawesome"]')) {
+      return; // Ya está cargado
+    }
+    
+    // Cargar Font Awesome desde CDN
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css';
+    document.head.appendChild(link);
+  }
+  
+  /**
+   * Calcula el porcentaje de completitud de documentos
+   * @param {Object} building - Edificio a analizar
+   * @returns {number} - Porcentaje de completitud
+   */
+  function calculateCompletionPercentage(building) {
+    // Si no hay documentos, retornar 0
+    if (!building.documents || building.documents.length === 0) {
+      return 0;
+    }
+    
+    // Contar tipos únicos registrados
+    const registeredTypes = new Set();
+    building.documents.forEach(doc => {
+      registeredTypes.add(`${doc.category}-${doc.type}`);
+    });
+    
+    // Contar tipos totales únicos
+    let totalUniqueTypes = 0;
+    docControlData.categories.forEach(category => {
+      totalUniqueTypes += category.types.length;
+    });
+    
+    // Calcular porcentaje
+    if (totalUniqueTypes === 0) return 100; // Evitar división por cero
+    
+    const percentage = (registeredTypes.size / totalUniqueTypes) * 100;
+    return Math.round(percentage);
+  }
+  
+  /**
+   * Obtiene la lista de documentos pendientes
+   * @returns {Array} - Lista de categorías con documentos pendientes
+   */
+  function getPendingDocuments() {
+    const result = [];
+    
+    // Si no hay edificio seleccionado, retornar lista vacía
+    if (!docControlData.selectedBuilding) {
+      return result;
+    }
+    
+    // Crear conjunto de documentos ya registrados
+    const registeredDocs = new Set();
+    if (docControlData.selectedBuilding.documents) {
+      docControlData.selectedBuilding.documents.forEach(doc => {
+        registeredDocs.add(`${doc.category}-${doc.type}`);
+      });
+    }
+    
+    // Recorrer categorías y tipos para encontrar pendientes
+    docControlData.categories.forEach(category => {
+      const pendingItems = [];
+      
+      category.types.forEach(type => {
+        if (!registeredDocs.has(`${category.name}-${type}`)) {
+          pendingItems.push(type);
+        }
+      });
+      
+      if (pendingItems.length > 0) {
+        result.push({
+          name: category.name,
+          items: pendingItems
+        });
+      }
+    });
+    
+    return result;
+  }
+  
+  /**
+   * Calcula los días hasta la fecha de vencimiento
+   * @param {Date|string} endDate - Fecha de vencimiento
+   * @returns {Object} - Objeto con estado y mensaje
+   */
+  function getDaysUntilExpiry(endDate) {
+    if (!endDate) {
+      return { status: 'success', message: 'Sin vencimiento' };
+    }
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const expiryDate = new Date(endDate);
+    expiryDate.setHours(0, 0, 0, 0);
+    
+    const diffTime = expiryDate - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) {
+      return { status: 'expired', message: 'Vencido' };
+    } else if (diffDays === 0) {
+      return { status: 'danger', message: 'Vence hoy' };
+    } else if (diffDays <= 7) {
+      return { status: 'danger', message: `${diffDays} días` };
+    } else if (diffDays <= 30) {
+      return { status: 'warning', message: `${diffDays} días` };
+    } else {
+      return { status: 'success', message: `${diffDays} días` };
+    }
+  }
+  
+  /**
+   * Formatea una fecha para mostrar
+   * @param {Date|string} date - Fecha a formatear
+   * @returns {string} - Fecha formateada
+   */
+  function formatDate(date) {
+    if (!date) return '';
+    
+    const d = new Date(date);
+    return d.toLocaleDateString('es-ES', { 
+      year: 'numeric', 
+      month: '2-digit', 
+      day: '2-digit' 
+    });
+  }
+  
+  /**
+   * Formatea una fecha para input type="date"
+   * @param {Date|string} date - Fecha a formatear
+   * @returns {string} - Fecha formateada en formato YYYY-MM-DD
+   */
+  function formatDateForInput(date) {
+    if (!date) return '';
+    
+    const d = new Date(date);
+    return d.toISOString().split('T')[0];
+  }// =========== CALENDARIO MEJORADO ===========
+let calendarView = 'month'; // Vista actual: 'day', 'week', 'month'
+let calendarDate = new Date(); // Fecha actual siendo visualizada
+let calendarEvents = []; // Array para almacenar eventos
+
+// Inicializar calendario cuando se carga la página
+document.addEventListener('DOMContentLoaded', function() {
+  // Verificar si estamos en la página de calendario
+  if (document.getElementById('calendarPage')) {
+    // Inicializar listeners para el calendario
+    initCalendarListeners();
+  }
+});
+
+// Inicializar listeners específicos del calendario
+function initCalendarListeners() {
+  // Agregar listener para cuando se seleccione la pestaña del calendario
+  document.querySelectorAll('.sidebar-btn[data-page="calendarPage"]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      // Inicializar el calendario cuando se selecciona la pestaña
+      initCalendar();
+    });
+  });
+}
+
+// Inicializar calendario
+function initCalendar() {
+  // Cargar eventos del servidor
+  loadCalendarEvents();
+  
+  // Establecer fecha de hoy
+  calendarDate = new Date();
+  
+  // Renderizar la vista actual
+  renderCalendarView();
+  
+  // Inicializar datepickers si existe flatpickr
+  if (typeof flatpickr !== 'undefined') {
+    initEventDatepickers();
+  }
+}
+
+// Cargar eventos del servidor
+function loadCalendarEvents() {
+  // Mostrar indicador de carga
+  document.getElementById(calendarView + 'View').innerHTML = '<div class="loading-indicator">Cargando eventos...</div>';
+  
+  google.script.run
+    .withSuccessHandler(function(events) {
+      calendarEvents = events;
+      renderCalendarView();
+    })
+    .withFailureHandler(function(error) {
+      showCalendarToast('Error al cargar eventos: ' + error.message, 'error');
+      console.error('Error al cargar eventos:', error);
+      document.getElementById(calendarView + 'View').innerHTML = 
+        '<div class="error-message">Error al cargar eventos. Por favor, intente nuevamente.</div>';
+    })
+    .getCalendarEvents();
+}
+
+// Cambiar entre vistas de día, semana y mes
+function switchView(newView) {
+  // Actualizar botones de vista
+  document.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
+  document.getElementById(newView + 'ViewBtn').classList.add('active');
+  
+  // Cambiar vista
+  calendarView = newView;
+  
+  // Renderizar nueva vista
+  renderCalendarView();
+}
+
+// Navegación: anterior, siguiente, hoy
+function navigatePrevious() {
+  switch (calendarView) {
+    case 'day':
+      calendarDate.setDate(calendarDate.getDate() - 1);
+      break;
+    case 'week':
+      calendarDate.setDate(calendarDate.getDate() - 7);
+      break;
+    case 'month':
+      calendarDate.setMonth(calendarDate.getMonth() - 1);
+      break;
+  }
+  renderCalendarView();
+}
+
+function navigateNext() {
+  switch (calendarView) {
+    case 'day':
+      calendarDate.setDate(calendarDate.getDate() + 1);
+      break;
+    case 'week':
+      calendarDate.setDate(calendarDate.getDate() + 7);
+      break;
+    case 'month':
+      calendarDate.setMonth(calendarDate.getMonth() + 1);
+      break;
+  }
+  renderCalendarView();
+}
+
+function goToToday() {
+  calendarDate = new Date();
+  renderCalendarView();
+}
+
+// Renderizar la vista según el modo actual
+function renderCalendarView() {
+  // Ocultar todas las vistas
+  document.querySelectorAll('.calendar-view').forEach(view => view.style.display = 'none');
+  
+  // Mostrar la vista actual
+  document.getElementById(calendarView + 'View').style.display = 'block';
+  
+  // Actualizar título
+  updateViewTitle();
+  
+  // Renderizar contenido según la vista
+  switch (calendarView) {
+    case 'day':
+      renderDayView();
+      break;
+    case 'week':
+      renderWeekView();
+      break;
+    case 'month':
+      renderMonthView();
+      break;
+  }
+}
+
+// Actualizar el título de la vista actual
+function updateViewTitle() {
+  const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  
+  let title = '';
+  
+  switch (calendarView) {
+    case 'day':
+      title = days[calendarDate.getDay()] + ', ' + calendarDate.getDate() + ' de ' + months[calendarDate.getMonth()] + ' ' + calendarDate.getFullYear();
+      break;
+    case 'week':
+      const weekStart = new Date(calendarDate);
+      weekStart.setDate(calendarDate.getDate() - calendarDate.getDay()); // Ajustar al domingo
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      
+      if (weekStart.getMonth() === weekEnd.getMonth()) {
+        title = weekStart.getDate() + ' - ' + weekEnd.getDate() + ' de ' + months[weekStart.getMonth()] + ' ' + weekStart.getFullYear();
+      } else if (weekStart.getFullYear() === weekEnd.getFullYear()) {
+        title = weekStart.getDate() + ' ' + months[weekStart.getMonth()] + ' - ' + weekEnd.getDate() + ' ' + months[weekEnd.getMonth()] + ' ' + weekStart.getFullYear();
+      } else {
+        title = weekStart.getDate() + ' ' + months[weekStart.getMonth()] + ' ' + weekStart.getFullYear() + ' - ' + 
+                weekEnd.getDate() + ' ' + months[weekEnd.getMonth()] + ' ' + weekEnd.getFullYear();
+      }
+      break;
+    case 'month':
+      title = months[calendarDate.getMonth()] + ' ' + calendarDate.getFullYear();
+      break;
+  }
+  
+  document.getElementById('currentViewTitle').textContent = title;
+}
+
+// Renderizar vista de día
+function renderDayView() {
+  const dayViewContainer = document.getElementById('dayView');
+  const dayDate = new Date(calendarDate);
+  const dateStr = formatDateForComparison(dayDate);
+  
+  // Filtrar eventos para este día
+  const dayEvents = calendarEvents.filter(event => {
+    const eventStart = new Date(event.startDate);
+    const eventEnd = new Date(event.endDate);
+    const eventStartDateStr = formatDateForComparison(eventStart);
+    const eventEndDateStr = formatDateForComparison(eventEnd);
+    
+    return (dateStr >= eventStartDateStr && dateStr <= eventEndDateStr);
+  });
+  
+  // Crear estructura de la vista
+  let html = '<div class="day-view-container">';
+  
+  // Cabecera con fecha
+  html += '<div class="day-header">' + dayDate.getDate() + '</div>';
+  
+  // Horas del día (de 0 a 23)
+  html += '<div class="day-hours">';
+  for (let hour = 0; hour < 24; hour++) {
+    const hourFormatted = (hour < 10 ? '0' : '') + hour + ':00';
+    html += `<div class="hour-row" data-hour="${hour}" onclick="showNewEventModalAtTime('${dayDate.toISOString().split('T')[0]}', ${hour})">
+              <div class="hour-label">${hourFormatted}</div>
+              <div class="hour-content" id="hour-${hour}"></div>
+            </div>`;
+  }
+  html += '</div>';
+  
+  html += '</div>';
+  
+  dayViewContainer.innerHTML = html;
+  
+  // Agregar eventos a las horas correspondientes
+  dayEvents.forEach(event => {
+    addEventToDay(event);
+  });
+}
+
+// Añadir un evento a la vista de día
+function addEventToDay(event) {
+  const eventStart = new Date(event.startDate);
+  const eventStartHour = eventStart.getHours();
+  const hourContainer = document.getElementById(`hour-${eventStartHour}`);
+  
+  if (hourContainer) {
+    const eventElement = document.createElement('div');
+    eventElement.className = 'day-event';
+    eventElement.style.backgroundColor = event.color || '#4285F4';
+    eventElement.innerHTML = `<div class="event-title">${event.title}</div>`;
+    
+    // Calcula duración del evento
+    let durationHours = 1; // Por defecto 1 hora
+    if (event.endDate) {
+      const eventEnd = new Date(event.endDate);
+      durationHours = (eventEnd - eventStart) / (1000 * 60 * 60);
+      // Limitar a horas enteras para simplificar
+      durationHours = Math.max(1, Math.round(durationHours));
+    }
+    
+    eventElement.style.height = (durationHours * 60) + 'px';
+    eventElement.setAttribute('data-event-id', event.id);
+    eventElement.onclick = function(e) {
+      e.stopPropagation();
+      editEvent(event.id);
+    };
+    
+    hourContainer.appendChild(eventElement);
+  }
+}
+
+// Renderizar vista de semana
+function renderWeekView() {
+  const weekViewContainer = document.getElementById('weekView');
+  const weekStart = new Date(calendarDate);
+  weekStart.setDate(calendarDate.getDate() - calendarDate.getDay()); // Ajustar al domingo
+  
+  // Crear array con los 7 días de la semana
+  const weekDays = [];
+  for (let i = 0; i < 7; i++) {
+    const day = new Date(weekStart);
+    day.setDate(weekStart.getDate() + i);
+    weekDays.push(day);
+  }
+  
+  // Crear estructura de la vista
+  let html = '<div class="week-view-container">';
+  
+  // Cabecera con días de la semana
+  html += '<div class="week-header">';
+  html += '<div class="week-header-hour"></div>'; // Celda vacía para alinear con las horas
+  
+  const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  weekDays.forEach((day, index) => {
+    html += `<div class="week-header-day">${days[index]} ${day.getDate()}</div>`;
+  });
+  html += '</div>';
+  
+  // Contenido con horas y eventos
+  html += '<div class="week-content">';
+  
+  // Horas del día (de 0 a 23)
+  for (let hour = 0; hour < 24; hour++) {
+    const hourFormatted = (hour < 10 ? '0' : '') + hour + ':00';
+    
+    html += '<div class="week-hour-row">';
+    html += `<div class="week-hour-label">${hourFormatted}</div>`;
+    
+    // Celdas para cada día de la semana
+    weekDays.forEach((day, index) => {
+      const dateStr = day.toISOString().split('T')[0];
+      html += `<div class="week-hour-cell" data-date="${dateStr}" data-hour="${hour}" 
+                    onclick="showNewEventModalAtTime('${dateStr}', ${hour})" 
+                    id="week-day-${index}-hour-${hour}"></div>`;
+    });
+    
+    html += '</div>';
+  }
+  
+  html += '</div>'; // Fin de week-content
+  html += '</div>'; // Fin de week-view-container
+  
+  weekViewContainer.innerHTML = html;
+  
+  // Agregar eventos a la semana
+  calendarEvents.forEach(event => {
+    addEventToWeek(event, weekDays);
+  });
+}
+
+// Añadir un evento a la vista de semana
+function addEventToWeek(event, weekDays) {
+  const eventStart = new Date(event.startDate);
+  
+  // Verificar si el evento pertenece a la semana actual
+  const eventDay = eventStart.getDay(); // 0-6 (domingo-sábado)
+  const eventHour = eventStart.getHours();
+  
+  // Comprobar si la fecha del evento está dentro de la semana actual
+  const eventDateStr = formatDateForComparison(eventStart);
+  const weekStartStr = formatDateForComparison(weekDays[0]);
+  const weekEndStr = formatDateForComparison(weekDays[6]);
+  
+  if (eventDateStr >= weekStartStr && eventDateStr <= weekEndStr) {
+    const cellId = `week-day-${eventDay}-hour-${eventHour}`;
+    const cell = document.getElementById(cellId);
+    
+    if (cell) {
+      const eventElement = document.createElement('div');
+      eventElement.className = 'week-event';
+      eventElement.style.backgroundColor = event.color || '#4285F4';
+      eventElement.innerHTML = `<div class="event-title">${event.title}</div>`;
+      
+      // Calcula duración del evento
+      let durationHours = 1; // Por defecto 1 hora
+      if (event.endDate) {
+        const eventEnd = new Date(event.endDate);
+        durationHours = (eventEnd - eventStart) / (1000 * 60 * 60);
+        // Limitar para simplificar
+        durationHours = Math.max(1, Math.min(24 - eventHour, Math.round(durationHours)));
+      }
+      
+      eventElement.style.height = (durationHours * 60) + 'px';
+      eventElement.setAttribute('data-event-id', event.id);
+      eventElement.onclick = function(e) {
+        e.stopPropagation();
+        editEvent(event.id);
+      };
+      
+      cell.appendChild(eventElement);
+    }
+  }
+}
+
+// Renderizar vista de mes
+function renderMonthView() {
+  const monthViewContainer = document.getElementById('monthView');
+  const year = calendarDate.getFullYear();
+  const month = calendarDate.getMonth();
+  
+  // Obtener el primer día del mes
+  const firstDay = new Date(year, month, 1);
+  const firstDayIndex = firstDay.getDay(); // 0-6 (domingo-sábado)
+  
+  // Obtener el último día del mes
+  const lastDay = new Date(year, month + 1, 0);
+  const daysInMonth = lastDay.getDate();
+  
+  // Calcular número de filas necesarias
+  const totalDays = firstDayIndex + daysInMonth;
+  const numRows = Math.ceil(totalDays / 7);
+  
+  // Crear estructura de la vista
+  let html = '<div class="month-view-container">';
+  
+  // Cabecera con nombres de días
+  const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  
+  html += '<div class="month-header">';
+  dayNames.forEach(day => {
+    html += `<div class="month-header-day">${day}</div>`;
+  });
+  html += '</div>';
+  
+  // Celdas del calendario
+  html += '<div class="month-grid">';
+  
+  // Días del mes anterior (para rellenar primera semana)
+  const prevMonth = new Date(year, month, 0);
+  const prevMonthDays = prevMonth.getDate();
+  
+  for (let i = firstDayIndex - 1; i >= 0; i--) {
+    const day = prevMonthDays - i;
+    const date = new Date(year, month - 1, day);
+    const dateStr = date.toISOString().split('T')[0];
+    
+    html += `<div class="month-day other-month" data-date="${dateStr}" onclick="showNewEventModalAtDate('${dateStr}')">
+              <div class="month-day-number">${day}</div>
+              <div class="month-day-events" id="month-day-prev-${day}"></div>
+            </div>`;
+  }
+  
+  // Días del mes actual
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = new Date(year, month, day);
+    const dateStr = date.toISOString().split('T')[0];
+    const isToday = isDateToday(date) ? 'today' : '';
+    
+    html += `<div class="month-day ${isToday}" data-date="${dateStr}" onclick="showNewEventModalAtDate('${dateStr}')">
+              <div class="month-day-number">${day}</div>
+              <div class="month-day-events" id="month-day-${day}"></div>
+            </div>`;
+  }
+  
+  // Días del mes siguiente (para rellenar la última semana)
+  const totalCells = numRows * 7;
+  const nextMonthDays = totalCells - (firstDayIndex + daysInMonth);
+  
+  for (let day = 1; day <= nextMonthDays; day++) {
+    const date = new Date(year, month + 1, day);
+    const dateStr = date.toISOString().split('T')[0];
+    
+    html += `<div class="month-day other-month" data-date="${dateStr}" onclick="showNewEventModalAtDate('${dateStr}')">
+              <div class="month-day-number">${day}</div>
+              <div class="month-day-events" id="month-day-next-${day}"></div>
+            </div>`;
+  }
+  
+  html += '</div>'; // Fin de month-grid
+  html += '</div>'; // Fin de month-view-container
+  
+  monthViewContainer.innerHTML = html;
+  
+  // Agregar eventos al mes
+  calendarEvents.forEach(event => {
+    addEventToMonth(event, year, month);
+  });
+}
+
+// Añadir un evento a la vista de mes
+function addEventToMonth(event, year, month) {
+  const eventStart = new Date(event.startDate);
+  const eventYear = eventStart.getFullYear();
+  const eventMonth = eventStart.getMonth();
+  const eventDay = eventStart.getDate();
+  
+  let dayElementId;
+  
+  // Determinar si el evento está en el mes actual, anterior o siguiente
+  if (eventYear === year && eventMonth === month) {
+    dayElementId = `month-day-${eventDay}`;
+  } else if (eventYear === year && eventMonth === month - 1) {
+    dayElementId = `month-day-prev-${eventDay}`;
+  } else if (eventYear === year && eventMonth === month + 1) {
+    dayElementId = `month-day-next-${eventDay}`;
+  } else {
+    return; // El evento no pertenece a ninguno de los días mostrados
+  }
+  
+  const dayElement = document.getElementById(dayElementId);
+  
+  if (dayElement) {
+    const eventElement = document.createElement('div');
+    eventElement.className = 'month-event';
+    eventElement.style.backgroundColor = event.color || '#4285F4';
+    eventElement.textContent = event.title;
+    eventElement.setAttribute('data-event-id', event.id);
+    eventElement.onclick = function(e) {
+      e.stopPropagation();
+      editEvent(event.id);
+    };
+    
+    dayElement.appendChild(eventElement);
+    
+    // Limitar número de eventos mostrados por día
+    const maxEventsToShow = 3;
+    const events = dayElement.querySelectorAll('.month-event');
+    
+    if (events.length > maxEventsToShow) {
+      // Ocultar eventos sobrantes
+      for (let i = maxEventsToShow - 1; i < events.length; i++) {
+        if (i === maxEventsToShow - 1) {
+          events[i].textContent = `+ ${events.length - maxEventsToShow + 1} más`;
+          events[i].style.backgroundColor = '#9E9E9E';
+          events[i].onclick = function(e) {
+            e.stopPropagation();
+            // Mostrar vista de día para este día
+            calendarDate = new Date(year, month, eventDay);
+            switchView('day');
+          };
+        } else {
+          events[i].style.display = 'none';
+        }
+      }
+    }
+  }
+}
+
+// Modal para crear/editar eventos
+function showNewEventModal() {
+  // Limpiar formulario
+  document.getElementById('eventForm').reset();
+  document.getElementById('eventId').value = '';
+  
+  // Ocultar botón eliminar
+  document.getElementById('deleteEventBtn').style.display = 'none';
+  
+  // Establecer fechas por defecto (hoy)
+  const today = new Date();
+  document.getElementById('eventStartDate').value = today.toISOString().split('T')[0];
+  document.getElementById('eventEndDate').value = today.toISOString().split('T')[0];
+  
+  // Mostrar modal
+  document.getElementById('eventModal').style.display = 'flex';
+  document.getElementById('eventModalTitle').textContent = 'Nuevo Evento';
+  document.getElementById('eventTitle').focus();
+}
+
+// Mostrar modal de nuevo evento con fecha y hora específicas
+function showNewEventModalAtTime(dateStr, hour) {
+  showNewEventModal();
+  
+  document.getElementById('eventStartDate').value = dateStr;
+  document.getElementById('eventEndDate').value = dateStr;
+  
+  // Establecer horas
+  const startTime = (hour < 10 ? '0' : '') + hour + ':00';
+  const endHour = (hour < 23 ? (hour + 1) : hour);
+  const endTime = (endHour < 10 ? '0' : '') + endHour + ':00';
+  
+  document.getElementById('eventStartTime').value = startTime;
+  document.getElementById('eventEndTime').value = endTime;
+}
+
+// Mostrar modal de nuevo evento con fecha específica
+function showNewEventModalAtDate(dateStr) {
+  showNewEventModal();
+  
+  document.getElementById('eventStartDate').value = dateStr;
+  document.getElementById('eventEndDate').value = dateStr;
+}
+
+// Cerrar modal de evento
+function closeEventModal() {
+  document.getElementById('eventModal').style.display = 'none';
+}
+
+// Editar un evento existente
+function editEvent(eventId) {
+  const event = calendarEvents.find(e => e.id == eventId);
+  
+  if (!event) {
+    showCalendarToast('Evento no encontrado', 'error');
+    return;
+  }
+  
+  // Llenar formulario con datos del evento
+  document.getElementById('eventId').value = event.id;
+  document.getElementById('eventTitle').value = event.title;
+  document.getElementById('eventDescription').value = event.description || '';
+  document.getElementById('eventLocation').value = event.location || '';
+  document.getElementById('eventColor').value = event.color || '#4285F4';
+  document.getElementById('eventReminder').value = event.reminderMinutes || '0';
+  
+  // Manejar fechas y horas
+  const startDate = new Date(event.startDate);
+  const endDate = new Date(event.endDate);
+  
+  document.getElementById('eventStartDate').value = startDate.toISOString().split('T')[0];
+  document.getElementById('eventEndDate').value = endDate.toISOString().split('T')[0];
+  
+  const formatTime = date => {
+    return date.getHours().toString().padStart(2, '0') + ':' + 
+           date.getMinutes().toString().padStart(2, '0');
+  };
+  
+  if (event.allDay !== true) {
+    document.getElementById('eventStartTime').value = formatTime(startDate);
+    document.getElementById('eventEndTime').value = formatTime(endDate);
+  } else {
+    document.getElementById('eventStartTime').value = '';
+    document.getElementById('eventEndTime').value = '';
+  }
+  
+  // Mostrar botón eliminar
+  document.getElementById('deleteEventBtn').style.display = 'inline-block';
+  
+  // Mostrar modal
+  document.getElementById('eventModal').style.display = 'flex';
+  document.getElementById('eventModalTitle').textContent = 'Editar Evento';
+}
+
+// Guardar un evento (nuevo o existente)
+function saveEvent() {
+  // Validar campos requeridos
+  const title = document.getElementById('eventTitle').value.trim();
+  const startDate = document.getElementById('eventStartDate').value;
+  const endDate = document.getElementById('eventEndDate').value;
+  
+  if (!title || !startDate || !endDate) {
+    showCalendarToast('Por favor complete los campos obligatorios', 'error');
+    return;
+  }
+  
+  // Recopilar datos del formulario
+  const eventId = document.getElementById('eventId').value;
+  const isNewEvent = !eventId;
+  
+  const startTime = document.getElementById('eventStartTime').value || '00:00';
+  const endTime = document.getElementById('eventEndTime').value || '23:59';
+  
+  const startDateTime = new Date(startDate + 'T' + startTime);
+  const endDateTime = new Date(endDate + 'T' + endTime);
+  
+  // Validar fechas
+  if (endDateTime < startDateTime) {
+    showCalendarToast('La fecha de fin debe ser posterior a la fecha de inicio', 'error');
+    return;
+  }
+  
+  const eventData = {
+    id: eventId || null, // null para nuevos eventos
+    title: title,
+    description: document.getElementById('eventDescription').value.trim(),
+    location: document.getElementById('eventLocation').value.trim(),
+    startDate: startDateTime.toISOString(),
+    endDate: endDateTime.toISOString(),
+    color: document.getElementById('eventColor').value,
+    reminderMinutes: parseInt(document.getElementById('eventReminder').value, 10),
+    allDay: !document.getElementById('eventStartTime').value
+  };
+  
+  // Mostrar indicador de carga
+  showCalendarToast('Guardando evento...', 'info');
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.success) {
+        closeEventModal();
+        showCalendarToast(isNewEvent ? 'Evento creado correctamente' : 'Evento actualizado correctamente', 'success');
+        loadCalendarEvents(); // Recargar eventos
+      } else {
+        showCalendarToast('Error: ' + result.message, 'error');
+      }
+    })
+    .withFailureHandler(function(error) {
+      showCalendarToast('Error al guardar el evento: ' + error.message, 'error');
+    })
+    .saveCalendarEvent(eventData);
+}
+
+// Eliminar un evento
+function deleteEvent() {
+  const eventId = document.getElementById('eventId').value;
+  
+  if (!eventId) {
+    closeEventModal();
+    return;
+  }
+  
+  if (!confirm('¿Está seguro de que desea eliminar este evento?')) {
+    return;
+  }
+  
+  // Mostrar indicador de carga
+  showCalendarToast('Eliminando evento...', 'info');
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.success) {
+        closeEventModal();
+        showCalendarToast('Evento eliminado correctamente', 'success');
+        loadCalendarEvents(); // Recargar eventos
+      } else {
+        showCalendarToast('Error: ' + result.message, 'error');
+      }
+    })
+    .withFailureHandler(function(error) {
+      showCalendarToast('Error al eliminar el evento: ' + error.message, 'error');
+    })
+    .deleteCalendarEvent(eventId);
+}
+
+// Mostrar mensaje toast
+function showCalendarToast(message, type = 'success') {
+  const toast = document.getElementById('calendarToast');
+  const toastMessage = document.getElementById('toastMessage');
+  
+  // Establecer mensaje y tipo
+  toastMessage.textContent = message;
+  
+  // Establecer estilo según tipo
+  switch (type) {
+    case 'success':
+      toast.style.backgroundColor = '#4CAF50';
+      break;
+    case 'error':
+      toast.style.backgroundColor = '#F44336';
+      break;
+    case 'info':
+      toast.style.backgroundColor = '#2196F3';
+      break;
+    case 'warning':
+      toast.style.backgroundColor = '#FF9800';
+      break;
+  }
+  
+  // Mostrar toast
+  toast.style.display = 'flex';
+  
+  // Ocultar después de 3 segundos
+  setTimeout(() => {
+    toast.style.display = 'none';
+  }, 3000);
+}
+
+// Inicializar datepickers para eventos si existe flatpickr
+function initEventDatepickers() {
+  // Destruir instancias existentes si las hay
+  if (window.startDatePickr) window.startDatePickr.destroy();
+  if (window.endDatePickr) window.endDatePickr.destroy();
+  
+  // Inicializar datepicker para fecha de inicio
+  window.startDatePickr = flatpickr('#eventStartDate', {
+    dateFormat: 'Y-m-d',
+    locale: 'es',
+    onChange: function(selectedDates) {
+      // Actualizar fecha mínima del datepicker de fin
+      if (selectedDates.length > 0) {
+        window.endDatePickr.set('minDate', selectedDates[0]);
+      }
+    }
+  });
+  
+  // Inicializar datepicker para fecha de fin
+  window.endDatePickr = flatpickr('#eventEndDate', {
+    dateFormat: 'Y-m-d',
+    locale: 'es',
+    minDate: document.getElementById('eventStartDate').value || 'today'
+  });
+}
+
+// Funciones auxiliares
+function formatDateForComparison(date) {
+  return date.getFullYear() + '-' + 
+         (date.getMonth() + 1).toString().padStart(2, '0') + '-' + 
+         date.getDate().toString().padStart(2, '0');
+}
+
+function isDateToday(date) {
+  const today = new Date();
+  return date.getDate() === today.getDate() && 
+         date.getMonth() === today.getMonth() && 
+         date.getFullYear() === today.getFullYear();
+}
+
+// Reemplazar la función renderCalendar original con una que inicialice el nuevo calendario
+function renderCalendar() {
+  // Inicializar el nuevo calendario mejorado
+  initCalendar();
+}
+</script>

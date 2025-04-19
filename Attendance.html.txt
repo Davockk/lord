@@ -1,0 +1,50 @@
+<div id="attendancePage" class="page">
+  <h2>Control de Asistencia</h2>
+  <div class="form-container">
+    <form id="attendanceForm">
+      <label>Fecha:
+        <input type="date" name="date" id="attendanceDate" required>
+      </label>
+      
+      <label>Nombre:
+        <input type="text" name="name" required>
+      </label>
+      
+      <label>Estado:
+        <select name="status" required>
+          <option value="">Seleccionar estado...</option>
+          <option value="Presente">Presente</option>
+          <option value="Ausente">Ausente</option>
+          <option value="Tardanza">Tardanza</option>
+          <option value="Justificado">Ausencia Justificada</option>
+        </select>
+      </label>
+      
+      <label>Observaciones:
+        <input type="text" name="observations">
+      </label>
+      
+      <button type="button" onclick="submitAttendance()">Registrar Asistencia</button>
+    </form>
+    <div id="attendanceStatus" class="status"></div>
+    
+    <h3>Registro de Asistencias</h3>
+    <div>
+      <label>Filtrar por fecha:
+        <input type="date" id="attendanceFilterDate" onchange="filterAttendance()">
+      </label>
+      <button type="button" onclick="resetAttendanceFilter()">Mostrar todo</button>
+    </div>
+    <table id="attendanceTable" class="register-table">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Nombre</th>
+          <th>Estado</th>
+          <th>Observaciones</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>

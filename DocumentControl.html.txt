@@ -1,0 +1,215 @@
+<div id="documentControlPage" class="page">
+  <h2>Control Documental</h2>
+  
+  <div class="doccontrol-container">
+    <!-- Panel de selección de edificios -->
+    <div class="building-selector" id="buildingSelector">
+      <h3>Seleccione un Edificio</h3>
+      <div id="buildingCards" class="building-cards"></div>
+      <button id="addBuildingBtn" class="primary-button"><i class="fas fa-plus"></i> Nuevo Edificio</button>
+    </div>
+
+    <!-- Panel principal que se muestra después de seleccionar un edificio -->
+    <div id="buildingPanel" class="building-panel" style="display: none;">
+      <div class="panel-header">
+        <h3 id="selectedBuildingTitle">Edificio Seleccionado</h3>
+        <button id="backToBuildingsBtn" class="secondary-button"><i class="fas fa-arrow-left"></i> Volver</button>
+      </div>
+      
+      <!-- Pestañas de navegación -->
+      <div class="tabs-container">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="documents">Documentos</button>
+          <button class="tab-btn" data-tab="pending">Pendientes</button>
+          <button class="tab-btn" data-tab="categories">Categorías</button>
+          <button class="tab-btn" data-tab="settings">Configuración</button>
+        </div>
+        
+        <!-- Contenido de las pestañas -->
+        <div class="tab-content">
+          <!-- Pestaña de Documentos -->
+          <div id="documents-tab" class="tab-pane active">
+            <div class="action-bar">
+              <button id="addDocumentBtn" class="primary-button"><i class="fas fa-plus"></i> Agregar Documento</button>
+              <div class="search-container">
+                <input type="text" id="documentSearchInput" placeholder="Buscar documentos...">
+                <button id="documentSearchBtn"><i class="fas fa-search"></i></button>
+              </div>
+            </div>
+            
+            <!-- Formulario para agregar/editar documento (inicialmente oculto) -->
+            <div id="documentForm" class="document-form" style="display: none;">
+              <h4 id="documentFormTitle">Agregar Documento</h4>
+              <form>
+                <input type="hidden" id="documentId">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="documentCategory">Categoría:</label>
+                    <select id="documentCategory" required onchange="updateDocumentTypes()">
+                      <option value="">Seleccione categoría...</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="documentType">Tipo:</label>
+                    <select id="documentType" required>
+                      <option value="">Seleccione tipo...</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div id="customTypeContainer" class="form-group" style="display: none;">
+                  <label for="documentCustomType">Especifique el tipo:</label>
+                  <input type="text" id="documentCustomType">
+                </div>
+                
+                <div class="form-group">
+                  <label for="documentDescription">Descripción:</label>
+                  <input type="text" id="documentDescription" required>
+                </div>
+                
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="documentStartDate">Fecha de inicio:</label>
+                    <input type="date" id="documentStartDate" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="documentEndDate">Fecha de vencimiento:</label>
+                    <input type="date" id="documentEndDate" required>
+                  </div>
+                </div>
+                
+                <div class="form-group">
+                  <label for="documentFile">Adjunto:</label>
+                  <input type="file" id="documentFile" class="file-input">
+                  <div id="currentFileInfo" class="file-info"></div>
+                </div>
+                
+                <div class="form-actions">
+                  <button type="button" onclick="cancelDocumentForm()" class="secondary-button">Cancelar</button>
+                  <button type="button" onclick="saveDocument()" class="primary-button">Guardar</button>
+                </div>
+              </form>
+            </div>
+            
+            <!-- Tabla de documentos -->
+            <div class="documents-table-container">
+              <table id="documentsTable" class="documents-table">
+                <thead>
+                  <tr>
+                    <th>Categoría</th>
+                    <th>Tipo</th>
+                    <th>Descripción</th>
+                    <th>F. Inicio</th>
+                    <th>F. Vencimiento</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+              <div id="noDocumentsMessage" class="no-data-message" style="display: none;">No hay documentos registrados</div>
+            </div>
+          </div>
+          
+          <!-- Pestaña de Pendientes -->
+          <div id="pending-tab" class="tab-pane">
+            <h4>Documentos Pendientes</h4>
+            <div id="pendingDocuments" class="pending-documents">
+              <!-- Las categorías y documentos pendientes se cargarán aquí -->
+            </div>
+            <div id="noPendingMessage" class="no-data-message" style="display: none;">No hay documentos pendientes</div>
+          </div>
+          
+          <!-- Pestaña de Categorías -->
+          <div id="categories-tab" class="tab-pane">
+            <div class="categories-container">
+              <div class="action-bar">
+                <button id="addCategoryBtn" class="primary-button"><i class="fas fa-plus"></i> Agregar Categoría</button>
+              </div>
+              
+              <!-- Formulario para agregar categoría (inicialmente oculto) -->
+              <div id="categoryForm" class="category-form" style="display: none;">
+                <h4>Agregar Categoría</h4>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="categoryName">Nombre de la categoría:</label>
+                    <input type="text" id="categoryName" required>
+                  </div>
+                  <div class="form-actions">
+                    <button type="button" onclick="cancelCategoryForm()" class="secondary-button">Cancelar</button>
+                    <button type="button" onclick="saveCategory()" class="primary-button">Guardar</button>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Acordeón de categorías -->
+              <div id="categoriesAccordion" class="accordion">
+                <!-- Las categorías y tipos se cargarán aquí -->
+              </div>
+            </div>
+          </div>
+          
+          <!-- Pestaña de Configuración -->
+          <div id="settings-tab" class="tab-pane">
+            <div class="building-settings">
+              <h4>Configuración del Edificio</h4>
+              <div class="form-group">
+                <label for="buildingName">Nombre del edificio:</label>
+                <input type="text" id="buildingName">
+              </div>
+              <div class="form-group">
+                <label for="buildingAddress">Dirección:</label>
+                <input type="text" id="buildingAddress">
+              </div>
+              <div class="form-group">
+                <label for="buildingIcon">Ícono:</label>
+                <select id="buildingIcon">
+                  <option value="building">Edificio</option>
+                  <option value="home">Casa</option>
+                  <option value="industry">Industria</option>
+                  <option value="warehouse">Bodega</option>
+                  <option value="hospital">Hospital</option>
+                  <option value="school">Escuela</option>
+                  <option value="store">Tienda</option>
+                  <option value="hotel">Hotel</option>
+                </select>
+              </div>
+              <button onclick="saveBuildingSettings()" class="primary-button">Guardar Configuración</button>
+              
+              <div class="danger-zone">
+                <h4>Zona de Peligro</h4>
+                <button onclick="deleteBuilding()" class="delete-button"><i class="fas fa-trash"></i> Eliminar Edificio</button>
+                <button onclick="exportBuildingData()" class="secondary-button"><i class="fas fa-download"></i> Exportar Datos</button>
+                <button onclick="importBuildingData()" class="secondary-button"><i class="fas fa-upload"></i> Importar Datos</button>
+                <input type="file" id="importFile" style="display: none;" accept=".json">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Modal de importación -->
+  <div id="importModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <span class="close-modal" onclick="closeImportModal()">&times;</span>
+      <h4>Importar Datos</h4>
+      <p>Se importarán los siguientes datos:</p>
+      <div id="importPreview" class="import-preview"></div>
+      <div class="modal-actions">
+        <button onclick="closeImportModal()" class="secondary-button">Cancelar</button>
+        <button onclick="confirmImport()" class="primary-button">Confirmar Importación</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Toast de notificación -->
+  <div id="docControlToast" class="toast" style="display: none;">
+    <i class="fas fa-check-circle"></i>
+    <span id="toastMessage"></span>
+  </div>
+  
+  <!-- Botón flotante para volver arriba -->
+  <button id="scrollTopBtn" class="scroll-top-btn" style="display: none;"><i class="fas fa-arrow-up"></i></button>
+</div>
